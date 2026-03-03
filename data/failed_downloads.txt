@@ -1,0 +1,19 @@
+FAILED DOWNLOADS LIST
+============================================================
+Total failed: 3
+
+1. Row 8: Criminal Law - Substantive
+   Subcategory: NDPS Act
+   Filename: A1985-61.pdf
+   URL: https://www.indiacode.nic.in/bitstream/123456789/1840/1/A1985-61.pdf
+
+2. Row 9: Criminal Law - Substantive
+   Subcategory: POCSO Act
+   Filename: A2012-32.pdf
+   URL: https://www.indiacode.nic.in/bitstream/123456789/6289/1/A2012-32.pdf
+
+3. Row 10: Criminal Law - Substantive
+   Subcategory: Domestic Violence Act
+   Filename: A2005-43.pdf
+   URL: https://www.indiacode.nic.in/bitstream/123456789/15510/1/A2005-43.pdf
+
