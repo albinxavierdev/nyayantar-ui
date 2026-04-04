@@ -50,28 +50,6 @@ def query_documents(
     return results
 
 
-def get_document_context(
-    document_path: str,
-    page_number: Optional[int] = None,
-    section: Optional[str] = None
-) -> str:
-    """
-    Get specific context from a document.
-    
-    Args:
-        document_path: Path to the document
-        page_number: Optional page number
-        section: Optional section identifier
-    
-    Returns:
-        Document content/context
-    """
-    indexer = get_indexer()
-    # Implementation depends on PageIndex API
-    # This is a placeholder
-    return ""
-
-
 def search_by_entities(
     entities: List[Dict],
     query: str,

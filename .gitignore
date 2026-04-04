@@ -10,7 +10,7 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+# Python lib dirs (not webapp/lib)
 lib64/
 parts/
 sdist/
@@ -50,6 +50,9 @@ models/
 *.onnx
 *.pb
 
+# Logs
+.logs/
+
 # Cache and temporary files
 temp/
 tmp/
@@ -78,6 +81,28 @@ Thumbs.db
 .DS_Store
 *.swp
 *.swo
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Next.js
+webapp/.next/
+webapp/out/
+
+# PWA (auto-generated service worker files)
+webapp/public/sw.js
+webapp/public/sw.js.map
+webapp/public/workbox-*.js
+webapp/public/workbox-*.js.map
+webapp/public/swe-worker-*.js
+webapp/public/fallback-*.js
+
+# Prisma (local dev db)
+webapp/prisma/*.db
+webapp/prisma/*.db-journal
 
 # Project specific
 data/pdfs/

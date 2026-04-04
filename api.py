@@ -3,11 +3,13 @@ FastAPI endpoint for BIOES tagging
 """
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Dict, Optional
 import sys
 import os
 import time
+import json
 
 # Fix compatibility: spacy-transformers with transformers 5.x
 # BatchEncoding moved in transformers 5.x
@@ -21,10 +23,6 @@ except ImportError:
     pass
 
 import spacy
-import torch
-
-# Add legal_NER to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "legal_NER"))
 
 # Import resolver for routing between ASK / INTERACT / DRAFT
 from agents.resolver import resolve_agent, ResolutionResult
@@ -45,10 +43,6 @@ legal_nlp = None
 preamble_nlp = None
 llama_tokenizer = None
 llama_model = None
-
-
-class QueryRequest(BaseModel):
-    query: str
 
 
 class BIOESTag(BaseModel):
@@ -481,15 +475,33 @@ async def query_full_pipeline(request: QueryRequest):
             has_context = ask_result.get("has_document_context", False)
             timing = ask_result.get("timing", {})
             
+            # Extract web search info
+            web_search_performed = ask_result.get("web_search_performed", False)
+            web_search_results_count = ask_result.get("web_search_results_count", 0)
+            news_search_results_count = ask_result.get("news_search_results_count", 0)
+            web_search_time = timing.get("web_search_seconds", 0)
+            
             phase3_time = time.time() - phase3_start
             print(f"Response generated (length: {len(final_response)} chars)")
             if has_context:
-                print(f"Documents retrieved: {num_docs} pages from {len(sources)} documents")
+                print(f"Documents retrieved: {num_docs} pages from {len([s for s in sources if s.get('type') != 'web' and s.get('type') != 'news'])} documents")
+            if web_search_performed:
+                print(f"Web search performed: {web_search_results_count} web results, {news_search_results_count} news results")
             if timing:
-                print(f"Timing - Retrieval: {timing.get('document_retrieval_seconds', 0):.3f}s, "
-                      f"LLM: {timing.get('llm_generation_seconds', 0):.3f}s, "
-                      f"Total: {timing.get('total_agent_seconds', 0):.3f}s")
+                timing_parts = []
+                if timing.get("document_retrieval_seconds", 0) > 0:
+                    timing_parts.append(f"Retrieval: {timing.get('document_retrieval_seconds', 0):.3f}s")
+                if web_search_time > 0:
+                    timing_parts.append(f"Web Search: {web_search_time:.3f}s")
+                timing_parts.append(f"LLM: {timing.get('llm_generation_seconds', 0):.3f}s")
+                timing_parts.append(f"Total: {timing.get('total_agent_seconds', 0):.3f}s")
+                print(f"Timing - {', '.join(timing_parts)}")
             print(f"Phase 3 completed in {phase3_time:.2f}s")
+            
+            # Separate local document sources from web search sources
+            local_sources = [s for s in sources if s.get("type") != "web" and s.get("type") != "news"]
+            web_sources = [s for s in sources if s.get("type") == "web"]
+            news_sources = [s for s in sources if s.get("type") == "news"]
             
             phases.append(PhaseInfo(
                 phase="3. Agent Processing (ASK)",
@@ -499,15 +511,23 @@ async def query_full_pipeline(request: QueryRequest):
                     "response_length": len(final_response),
                     "document_retrieval": {
                         "num_documents_retrieved": num_docs,
-                        "num_sources": len(sources),
+                        "num_sources": len(local_sources),
                         "has_document_context": has_context,
-                        "sources": sources[:5],  # Include first 5 sources in response
+                        "sources": local_sources[:5],  # Include first 5 local sources
                         "retrieval_time_seconds": timing.get("document_retrieval_seconds", 0),
                         "llm_generation_time_seconds": timing.get("llm_generation_seconds", 0),
                         "total_agent_time_seconds": timing.get("total_agent_seconds", 0)
+                    },
+                    "web_search": {
+                        "performed": web_search_performed,
+                        "web_results_count": web_search_results_count,
+                        "news_results_count": news_search_results_count,
+                        "web_sources": web_sources[:5],  # Include first 5 web sources
+                        "news_sources": news_sources[:5],  # Include first 5 news sources
+                        "web_search_time_seconds": web_search_time
                     }
                 },
-                message=f"ASK agent generated response using Groq{' with document context' if has_context else ' (general knowledge)'}",
+                message=f"ASK agent generated response using Groq{' with document context' if has_context else ' (general knowledge)'}{' + web search' if web_search_performed else ''}",
                 duration_seconds=round(phase3_time, 3)
             ))
             
@@ -566,3 +586,108 @@ async def query_full_pipeline(request: QueryRequest):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/query/stream")
+async def query_stream_pipeline(request: QueryRequest):
+    """Full pipeline with streaming LLM response via SSE."""
+    global legal_nlp, preamble_nlp
+
+    if not legal_nlp or not preamble_nlp:
+        raise HTTPException(status_code=503, detail="Models not loaded")
+
+    query = request.query.strip()
+    if not query:
+        raise HTTPException(status_code=400, detail="Query cannot be empty")
+
+    def event_stream():
+        pipeline_start = time.time()
+
+        # ── Phase 1: Tagging ──
+        preamble_doc = preamble_nlp(query)
+        sentences = [sent.text for sent in preamble_doc.sents]
+        if sentences:
+            docs = [legal_nlp(sent) for sent in sentences]
+            doc = spacy.tokens.Doc.from_docs(docs)
+        else:
+            doc = legal_nlp(query)
+
+        bioes_tags = convert_to_bioes(doc, query)
+        entities_list: List[Entity] = [
+            Entity(text=ent.text, label=ent.label_, start=ent.start_char, end=ent.end_char)
+            for ent in doc.ents
+        ]
+        entities_dict = [{"text": e.text, "label": e.label, "entity_type": e.label} for e in entities_list]
+
+        # ── Phase 2: Routing ──
+        resolution = resolve_agent(query=query, entities=entities_list, bioes_tags=bioes_tags)
+
+        # ── Phase 2.5: Document Retrieval + Web Search ──
+        from agents.ask.agent import retrieve_document_context, generate_response_stream
+        retrieved_docs = retrieve_document_context(query, entities_dict, top_k=5)
+
+        web_search_results = None
+        web_search_time = 0
+        try:
+            from agents.ask.web_search import search_web_and_news, classify_query_type, should_trigger_web_search
+            should_search = should_trigger_web_search(query=query, retrieved_docs=retrieved_docs, entities=entities_dict, bioes_tags=bioes_tags)
+            if should_search:
+                qc = classify_query_type(query=query, entities=entities_dict, bioes_tags=bioes_tags)
+                ws_start = time.time()
+                web_search_results = search_web_and_news(query=query, entities=entities_dict, bioes_tags=bioes_tags, search_type=qc["search_type"])
+                web_search_time = time.time() - ws_start
+        except Exception as e:
+            print(f"[Stream] Web search error: {e}")
+
+        # Build citations/meta
+        local_sources = retrieved_docs.get("sources", [])
+        web_sources = []
+        news_sources = []
+        if web_search_results:
+            web_sources = web_search_results.get("sources", [])
+            web_sources = [s for s in web_sources if s.get("type") == "web"]
+            news_sources = [s for s in web_search_results.get("sources", []) if s.get("type") == "news"]
+
+        meta = {
+            "routed_agent": resolution.agent,
+            "entities": [{"text": e.text, "label": e.label} for e in entities_list],
+            "documents": local_sources[:5],
+            "web_search_results": {
+                "web_count": len(web_search_results.get("web_results", [])) if web_search_results else 0,
+                "news_count": len(web_search_results.get("news_results", [])) if web_search_results else 0,
+                "sources": [s.get("url", s.get("href", "")) for s in web_sources[:5] + news_sources[:5] if s.get("url") or s.get("href")],
+            },
+            "timing": {
+                "retrieval": retrieved_docs.get("retrieval_time_seconds", 0),
+                "web_search": round(web_search_time, 3),
+            },
+        }
+
+        # Send meta event first
+        yield f"data: {json.dumps({'type': 'meta', 'data': meta})}\n\n"
+
+        # ── Phase 3: Streaming LLM ──
+        llm_start = time.time()
+        for token in generate_response_stream(
+            query=query,
+            entities=entities_dict,
+            context=None,
+            retrieved_docs=retrieved_docs,
+            web_search_results=web_search_results,
+        ):
+            yield f"data: {json.dumps({'type': 'token', 'data': token})}\n\n"
+
+        llm_time = time.time() - llm_start
+        total_time = time.time() - pipeline_start
+
+        # Send done event with final timing
+        meta["timing"]["llm"] = round(llm_time, 3)
+        meta["timing"]["total"] = round(total_time, 3)
+        yield f"data: {json.dumps({'type': 'done', 'data': meta})}\n\n"
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
+
+
+@app.get("/health")
+async def health_check():
+    return {"status": "ok"}
