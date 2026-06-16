@@ -57,7 +57,7 @@ LEGAL_NER_MODEL_DIRNAME = "en_legal_ner_trf"  # directory name for local model
 PREAMBLE_MODEL = "en_core_web_sm"
 
 LEGAL_NER_URL = "https://huggingface.co/opennyaiorg/en_legal_ner_trf/resolve/main/en_legal_ner_trf-any-py3-none-any.whl"
-PREAMBLE_MODEL_URL = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.2.0/en_core_web_sm-3.2.0-py3-none-any.whl"
+PREAMBLE_MODEL_URL = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl"
 
 # Qwen model
 LLAMA_MODEL_NAME = "Qwen/Qwen3.5-0.8B"
@@ -410,7 +410,8 @@ if __name__ == "__main__":
     print("\n" + "=" * 60)
     print("STARTING FASTAPI SERVER")
     print("=" * 60)
-    print("Server URL: http://0.0.0.0:8000")
+    port = int(os.getenv("PORT", "8000"))
+    print(f"Server URL: http://0.0.0.0:{port}")
     print("\nAvailable Endpoints:")
     print("  POST /tags          - Tag query with BIOES labels only")
     print("  POST /test-local    - Test local Qwen model")
@@ -430,4 +431,4 @@ if __name__ == "__main__":
         print(f"  Cloud LLM (Groq): ✗ Not configured")
     print("=" * 60 + "\n")
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=port)
