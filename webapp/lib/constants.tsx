@@ -60,19 +60,39 @@ export const navItems = [
 export const footerLinkCols = [
   {
     title: "Product",
-    links: ["Research", "Document analysis", "Case intelligence", "Integrations"],
+    links: [
+      { label: "Research", href: "/#features" },
+      { label: "Workspace", href: "/chat" },
+      { label: "Models", href: "/models" },
+      { label: "Feedback", href: "/feedback" },
+    ],
   },
   {
     title: "Company",
-    links: ["About", "Careers", "Blog", "Contact"],
+    links: [
+      { label: "Home", href: "/" },
+      { label: "Login", href: "/login" },
+      { label: "Register", href: "/register" },
+      { label: "Security", href: "/security" },
+    ],
   },
   {
     title: "Resources",
-    links: ["Docs", "API", "Changelog", "Status"],
+    links: [
+      { label: "FAQ", href: "/#faq" },
+      { label: "Pricing", href: "/#pricing" },
+      { label: "Privacy Policy", href: "/privacy" },
+      { label: "Terms of Use", href: "/terms" },
+    ],
   },
   {
     title: "Legal",
-    links: ["Privacy", "Terms", "Security", "Compliance"],
+    links: [
+      { label: "Cookies", href: "/cookies" },
+      { label: "Contact", href: "/contact" },
+      { label: "Compliance", href: "/security" },
+      { label: "Unauthorized", href: "/unauthorized" },
+    ],
   },
 ] as const;
 
@@ -317,4 +337,26 @@ export const defaultUser = {
   name: "Ananya Rao",
   email: "ananya@meridian.law",
   initials: "AR",
+  role: "user" as const,
 } as const;
+
+export const adminUsers = [
+  {
+    name: "Admin Monitor",
+    email: "admin@nyayantar.law",
+    initials: "AM",
+    role: "admin" as const,
+  },
+  {
+    name: "Sudo Admin",
+    email: "sudo@nyayantar.law",
+    initials: "SA",
+    role: "sudo_admin" as const,
+  },
+  {
+    name: "Super Admin",
+    email: "super@nyayantar.law",
+    initials: "SU",
+    role: "super_admin" as const,
+  },
+] as const;

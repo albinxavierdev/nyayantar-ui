@@ -7,9 +7,8 @@ import { SpacerDivider } from "@/components/sections/SpacerDivider";
 import { BuiltSection } from "@/components/sections/BuiltSection";
 import { FeatureGridSection } from "@/components/sections/FeatureGridSection";
 import { TestimonialSection } from "@/components/sections/TestimonialSection";
-import { AuthSection } from "@/components/sections/AuthSection";
 import { WorkspaceSection } from "@/components/sections/WorkspaceSection";
-import { AuthProvider } from "@/components/providers/AuthProvider";
+
 import { AdvancedFeaturesSection } from "@/components/sections/AdvancedFeaturesSection";
 import { PricingSection } from "@/components/sections/PricingSection";
 import { FaqSection } from "@/components/sections/FaqSection";
@@ -17,7 +16,7 @@ import { CtaSection } from "@/components/sections/CtaSection";
 
 export default function Page() {
   return (
-    <AuthProvider>
+    <>
       <Header />
       <main>
         <HeroSection />
@@ -27,7 +26,6 @@ export default function Page() {
         <BuiltSection />
         <FeatureGridSection />
         <TestimonialSection />
-        <AuthSection />
         <WorkspaceSection />
         <AdvancedFeaturesSection />
         <PricingSection />
@@ -35,6 +33,6 @@ export default function Page() {
         <CtaSection />
       </main>
       <Footer />
-    </AuthProvider>
+    </>
   );
 }

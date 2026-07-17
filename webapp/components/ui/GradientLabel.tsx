@@ -14,7 +14,7 @@ export function GradientLabel({ children, className = "" }: GradientLabelProps) 
       className={`accent-border-wrap inline-flex rounded-2xl ${className}`}
       style={{ borderRadius: 16 }}
     >
-      <span className="inline-flex items-center gap-2 rounded-2xl bg-page px-3 py-1.5 text-xs font-medium">
+      <span className="inline-flex items-center gap-2 rounded-2xl bg-page px-3.5 py-1.5 text-sm font-medium">
         <motion.svg
           width="16"
           height="16"

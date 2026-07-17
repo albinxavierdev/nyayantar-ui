@@ -2,7 +2,7 @@
 # ──────────────────────────────────────────────────────────
 # Nyayantar — Startup Script
 # Kills existing processes, then starts backend + webapp
-# Usage: ./start.sh
+# Usage: ./start.sh [restart]
 # ──────────────────────────────────────────────────────────
 set -e
 
@@ -24,9 +24,15 @@ ok()   { echo -e "${GREEN}[nyayantar]${NC} $1"; }
 warn() { echo -e "${YELLOW}[nyayantar]${NC} $1"; }
 err()  { echo -e "${RED}[nyayantar]${NC} $1"; }
 
-# ── 1. Kill existing processes ────────────────────────────
-log "Checking for existing processes..."
+MODE="${1:-start}"
 
+if [ "$MODE" = "restart" ]; then
+  log "Restarting Nyayantar services..."
+else
+  log "Checking for existing processes..."
+fi
+
+# ── 1. Kill existing processes ────────────────────────────
 kill_port() {
   local port=$1
   local pids
@@ -119,7 +125,11 @@ fi
 # ── 5. Summary ──────────────────────────────────────────
 echo ""
 echo -e "${CYAN}════════════════════════════════════════════════════════${NC}"
-echo -e "${GREEN}  Nyayantar is running${NC}"
+if [ "$MODE" = "restart" ]; then
+  echo -e "${GREEN}  Nyayantar restarted${NC}"
+else
+  echo -e "${GREEN}  Nyayantar is running${NC}"
+fi
 echo -e "${CYAN}════════════════════════════════════════════════════════${NC}"
 echo -e "  Backend  : http://127.0.0.1:$BACKEND_PORT  (PID $BACKEND_PID)"
 echo -e "  Webapp   : http://localhost:$WEBAPP_PORT   (PID $WEBAPP_PID)"
@@ -129,4 +139,5 @@ echo -e "    Backend : $BACKEND_LOG"
 echo -e "    Webapp  : $WEBAPP_LOG"
 echo -e ""
 echo -e "  Stop all : ${YELLOW}./stop.sh${NC}"
+echo -e "  Restart  : ${YELLOW}./start.sh restart${NC}"
 echo -e "${CYAN}════════════════════════════════════════════════════════${NC}"

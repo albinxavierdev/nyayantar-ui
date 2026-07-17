@@ -8,16 +8,16 @@ import { advancedCapabilities } from "@/lib/constants";
 
 export function AdvancedFeaturesSection() {
   return (
-    <section className="section-shell py-14 md:py-[60px]">
+    <section className="section-shell py-16 md:py-[72px]">
       <div className="section-container">
         <div className="content-container mx-auto px-4 md:px-10">
           <div className="overflow-hidden rounded-3xl border border-border bg-surface-tint/60">
             <div className="px-6 py-10 md:px-12 md:py-12">
               <Reveal className="max-w-title">
-                <p className="text-sm font-medium text-accent1">
+                <p className="text-base font-medium text-accent1">
                   Advanced capabilities
                 </p>
-                <h2 className="mt-3 text-3xl font-semibold leading-[1.1] tracking-tight-2 sm:text-4xl">
+                <h2 className="mt-4 text-[40px] font-semibold leading-[1.05] tracking-tight-3 sm:text-[56px]">
                   Effortless on the surface, serious underneath.
                 </h2>
                 <p className="mt-4 text-lg leading-7 text-text-muted">

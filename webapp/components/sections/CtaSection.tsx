@@ -8,7 +8,7 @@ import { tickerWords } from "@/lib/constants";
 
 export function CtaSection() {
   return (
-    <section id="cta" className="section-shell pt-12 md:pt-[52px]">
+    <section id="cta" className="section-shell pt-16 md:pt-[72px]">
       <div className="section-container">
         <div className="content-container mx-auto px-4 md:px-10">
           <div className="flex flex-col-reverse gap-10 md:flex-col">
@@ -34,24 +34,25 @@ export function CtaSection() {
             </div>
 
             <Reveal>
-              <div className="relative mx-auto max-w-[920px] overflow-hidden rounded-[28px] border border-border bg-surface px-5 py-12 text-center md:px-10 md:py-14">
+                 <div className="relative mx-auto max-w-[920px] overflow-hidden rounded-[28px] border border-border bg-surface px-6 py-14 text-center md:px-10 md:py-16">
                 <div className="pointer-events-none absolute -left-20 top-0 h-56 w-56 rounded-full bg-accent1/8 blur-3xl" />
                 <div className="pointer-events-none absolute -right-20 bottom-0 h-56 w-56 rounded-full bg-accent2/8 blur-3xl" />
 
                 <div className="relative">
                   <GradientLabel>Join the beta</GradientLabel>
-                  <h2 className="mx-auto mt-4 max-w-[560px] text-[34px] font-semibold leading-[1.08] tracking-tight-3 sm:text-[42px]">
+                  <h2 className="mx-auto mt-4 max-w-[560px] text-[40px] font-semibold leading-[1.05] tracking-tight-3 sm:text-[56px]">
                     Ready to rethink legal work?
                   </h2>
                   <p className="mx-auto mt-4 max-w-[520px] text-[16px] leading-7 text-text-muted md:text-[17px]">
-                    Start free in minutes. No credit card, no clutter — just the
-                    research, drafting, and review tools you wish you had yesterday.
+                    Explore the product flow, pricing, and workspace preview in
+                    one clean place. No clutter — just the research, drafting,
+                    and review tools you need.
                   </p>
                   <div className="mt-7 flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center">
-                    <Button href="#" size="lg" showArrow className="w-full sm:w-auto">
-                      Start free
+                    <Button href="#workspace" size="lg" showArrow className="w-full sm:w-auto">
+                      See it in action
                     </Button>
-                    <Button href="#pricing" variant="secondary" size="lg" className="w-full sm:w-auto">
+                    <Button href="#pricing" variant="ghost" size="lg" className="w-full sm:w-auto">
                       View pricing
                     </Button>
                   </div>

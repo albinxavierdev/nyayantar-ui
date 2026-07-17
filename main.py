@@ -55,7 +55,6 @@ os.environ["TEMP"] = str(TEMP_DIR)
 # ------------------------------------------------------------------
 LEGAL_NER_MODEL_DIRNAME = "en_legal_ner_trf"  # directory name for local model
 PREAMBLE_MODEL = "en_core_web_sm"
-
 LEGAL_NER_URL = "https://huggingface.co/opennyaiorg/en_legal_ner_trf/resolve/main/en_legal_ner_trf-any-py3-none-any.whl"
 PREAMBLE_MODEL_URL = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl"
 
@@ -199,13 +198,13 @@ def ensure_legal_model_local() -> Path | None:
 
 
 def install_preamble_model() -> bool:
-    """Use pip to install the preamble model (this wheel has a normal version)."""
+    """Download the preamble model using spacy's built-in downloader."""
     print("\n" + "=" * 60)
     print(f"Installing {PREAMBLE_MODEL}")
     print("=" * 60 + "\n")
     try:
         result = subprocess.run(
-            [sys.executable, "-m", "pip", "install", PREAMBLE_MODEL_URL],
+            [sys.executable, "-m", "spacy", "download", PREAMBLE_MODEL],
             capture_output=False,
         )
         return result.returncode == 0

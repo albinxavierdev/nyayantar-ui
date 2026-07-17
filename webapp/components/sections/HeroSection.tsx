@@ -26,7 +26,7 @@ export function HeroSection() {
               initial={{ opacity: 0, y: 30 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 1, ease: [0.44, 0, 0.56, 1], delay: 0.08 }}
-              className="mt-6 text-4xl font-semibold leading-[1.06] tracking-tight-3 text-balance sm:text-5xl lg:text-[64px] lg:leading-[1.05]"
+              className="mt-6 text-[40px] font-semibold leading-[1.06] tracking-tight-3 text-balance sm:text-5xl lg:text-[64px] lg:leading-[1.05]"
             >
               Legal research,{" "}
               <span className="gradient-text">rethought</span> for the way you
@@ -44,19 +44,19 @@ export function HeroSection() {
               confidence, and surface the precedent that wins — without the noise.
             </motion.p>
 
-            <motion.div
-              initial={{ opacity: 0, y: 30 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 1, ease: [0.44, 0, 0.56, 1], delay: 0.24 }}
-              className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center"
-            >
-              <Button href="#cta" size="lg" showArrow className="w-full sm:w-auto">
-                Start free
-              </Button>
-              <Button href="#features" variant="secondary" size="lg" className="w-full sm:w-auto">
-                See how it works
-              </Button>
-            </motion.div>
+              <motion.div
+                initial={{ opacity: 0, y: 30 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 1, ease: [0.44, 0, 0.56, 1], delay: 0.24 }}
+                className="mt-8 flex flex-col gap-3 sm:flex-row sm:items-center"
+              >
+                <Button href="#workspace" size="lg" showArrow className="w-full sm:w-auto">
+                  See it in action
+                </Button>
+                <Button href="#features" variant="secondary" size="lg" className="w-full sm:w-auto">
+                  Explore features
+                </Button>
+              </motion.div>
 
             <motion.ul
               initial={{ opacity: 0, y: 30 }}

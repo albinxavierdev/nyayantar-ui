@@ -5,7 +5,7 @@ import { brands } from "@/lib/constants";
 
 export function BrandSection() {
   return (
-    <section className="section-shell py-12 md:py-14">
+    <section className="section-shell py-14 md:py-16">
       <div className="section-container">
         <div className="content-container mx-auto border-y border-border px-4 py-10 md:px-10">
           <Reveal>

@@ -1,6 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
+import Link from "next/link";
 import type { ReactNode } from "react";
 import { memo } from "react";
 import { arrowSlide } from "@/lib/motion";
@@ -83,6 +84,22 @@ export const Button = memo(function Button({
   const cls = `${base} ${sizes[size]} ${variants[variant]} ${className}`;
 
   if (href && (href.startsWith("#") || href.startsWith("/") || href.startsWith("http"))) {
+    if (href.startsWith("http")) {
+      return (
+        <a href={href} className={cls} onClick={onClick}>
+          <ButtonInner showArrow={showArrow}>{children}</ButtonInner>
+        </a>
+      );
+    }
+
+    if (href.startsWith("/")) {
+      return (
+        <Link href={href} className={cls} onClick={onClick}>
+          <ButtonInner showArrow={showArrow}>{children}</ButtonInner>
+        </Link>
+      );
+    }
+
     return (
       <a href={href} className={cls} onClick={onClick}>
         <ButtonInner showArrow={showArrow}>{children}</ButtonInner>

@@ -1,6 +1,6 @@
 import { Icon } from "@/components/ui/Icon";
 import { Logo } from "@/components/ui/Logo";
-import { chatThreads, initialMessages } from "@/lib/constants";
+import { type Message } from "@/lib/constants";
 
 export function Citation({ label }: { label: string }) {
   return (
@@ -20,35 +20,16 @@ export function ChatWindow() {
           <p className="text-xs font-medium text-text-muted">Recent</p>
         </div>
         <div className="flex-1 space-y-1 p-2">
-          {chatThreads.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              className={`flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm framer-transition ${
-                t.active
-                  ? "bg-surface text-text shadow-[0_4px_14px_rgba(141,75,44,0.08)]"
-                  : "text-text-muted hover:bg-surface hover:text-text"
-              }`}
-            >
-              <Icon
-                name="search"
-                size={15}
-                className={t.active ? "text-accent1" : ""}
-              />
-              <span className="truncate">{t.title}</span>
-            </button>
-          ))}
+          <p className="px-3 py-2 text-sm text-text-muted">No threads yet</p>
         </div>
         <div className="border-t border-border p-3">
           <div className="flex items-center gap-2.5 rounded-xl bg-surface px-3 py-2">
             <span className="flex h-8 w-8 items-center justify-center rounded-full primary-gradient text-xs font-semibold text-white">
-              AR
+              U
             </span>
             <div className="min-w-0 leading-tight">
-              <p className="truncate text-xs font-semibold text-text">
-                Ananya Rao
-              </p>
-              <p className="truncate text-[11px] text-text-muted">Meridian Law</p>
+              <p className="truncate text-xs font-semibold text-text">User</p>
+              <p className="truncate text-[11px] text-text-muted">Open chat to start</p>
             </div>
           </div>
         </div>
@@ -75,36 +56,12 @@ export function ChatWindow() {
         </div>
 
         <div className="flex-1 space-y-4 overflow-y-auto p-4">
-          {initialMessages.map((m, idx) => {
-            if (m.role === "user") {
-              return (
-                <div key={idx} className="flex justify-end">
-                  <p className="max-w-[85%] rounded-2xl rounded-br-sm bg-surface-tint px-4 py-2.5 text-sm leading-6 text-text">
-                    {m.text}
-                  </p>
-                </div>
-              );
-            }
-            return (
-              <div key={idx} className="flex gap-3">
-                <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full primary-gradient text-xs font-semibold text-white">
-                  N
-                </span>
-                <div className="max-w-[85%]">
-                  <p className="rounded-2xl rounded-tl-sm border border-border bg-surface px-4 py-2.5 text-sm leading-6 text-text">
-                    {m.text}
-                  </p>
-                  {m.citations && (
-                    <div className="mt-2.5 flex flex-wrap gap-2">
-                      {m.citations.map((c) => (
-                        <Citation key={c} label={c} />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
+          <div className="flex h-full flex-col items-center justify-center gap-3 py-12">
+            <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-surface-tint text-accent1">
+              <Icon name="brain" size={22} />
+            </span>
+            <p className="text-sm text-text-muted">Start a conversation to begin research.</p>
+          </div>
         </div>
 
         <div className="border-t border-border p-3">

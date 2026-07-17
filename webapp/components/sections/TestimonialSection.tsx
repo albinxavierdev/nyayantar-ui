@@ -7,20 +7,26 @@ import { Icon } from "@/components/ui/Icon";
 import { testimonials } from "@/lib/constants";
 
 export function TestimonialSection() {
+  const feedbackItems = testimonials.filter((item) => item.quote.trim().length > 0);
   const [i, setI] = useState(0);
-  const t = testimonials[i];
+
+  if (!feedbackItems.length) {
+    return null;
+  }
+
+  const t = feedbackItems[i % feedbackItems.length];
 
   const go = useCallback((dir: number) => {
-    setI((p) => (p + dir + testimonials.length) % testimonials.length);
+    setI((p) => (p + dir + feedbackItems.length) % feedbackItems.length);
   }, []);
 
   return (
-    <section className="section-shell py-10 md:py-12">
+    <section className="section-shell py-16 md:py-[72px]">
       <div className="section-container">
         <div className="content-container mx-auto px-4 md:px-10">
           <Reveal className="max-w-title">
-            <p className="text-sm font-medium text-accent1">Loved by lawyers</p>
-            <h2 className="mt-2.5 text-3xl font-semibold leading-[1.1] tracking-tight-2 sm:text-4xl">
+            <p className="text-base font-medium text-accent1">Loved by lawyers</p>
+            <h2 className="mt-4 text-[40px] font-semibold leading-[1.05] tracking-tight-3 sm:text-[56px]">
               Work that earns trust.
             </h2>
           </Reveal>
@@ -74,7 +80,7 @@ export function TestimonialSection() {
                   <Icon name="arrow" size={18} />
                 </button>
                 <div className="ml-2 flex items-center gap-1.5" role="tablist" aria-label="Testimonial navigation">
-                  {testimonials.map((_, idx) => (
+                  {feedbackItems.map((_, idx) => (
                     <span
                       key={idx}
                       className={`h-1.5 rounded-full framer-transition ${

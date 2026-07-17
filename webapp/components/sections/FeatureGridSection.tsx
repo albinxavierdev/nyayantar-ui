@@ -102,12 +102,12 @@ const cards: CardWithVisual[] = [
 
 export function FeatureGridSection() {
   return (
-    <section className="section-shell py-14 md:py-[60px]">
+    <section className="section-shell py-16 md:py-[72px]">
       <div className="section-container">
         <div className="content-container mx-auto px-4 md:px-10">
           <Reveal className="max-w-title">
-            <p className="text-sm font-medium text-accent1">The workspace</p>
-            <h2 className="mt-3 text-3xl font-semibold leading-[1.1] tracking-tight-2 sm:text-4xl">
+            <p className="text-base font-medium text-accent1">The workspace</p>
+            <h2 className="mt-4 text-[40px] font-semibold leading-[1.05] tracking-tight-3 sm:text-[56px]">
               One place for research, drafting, and review.
             </h2>
           </Reveal>

@@ -324,7 +324,7 @@ async def test_cloud_model(request: TestCloudRequest):
         from agents.ask import generate_response
         
         # Test with empty entities
-        response = generate_response(query, entities=[], context=None)
+        response, _ = generate_response(query, entities=[], context=None)
         
         print(f"Response: {response[:200]}...")  # Print first 200 chars
         print("="*60 + "\n")
