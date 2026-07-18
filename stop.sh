@@ -46,7 +46,7 @@ stop_service() {
 }
 
 log "Stopping Nyayantar services..."
-stop_service "backend" 8000
+stop_service "backend" 8020
 stop_service "webapp"  3000
 
 echo ""

@@ -7,11 +7,8 @@ import { type Message } from "@/lib/constants";
 import { sanitizeText } from "@/lib/utils";
 import { useAuth, hasRole, getAuthHeaders } from "@/components/providers/AuthProvider";
 
-const BACKEND_BASE = (
-  process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"
-).replace(/\/$/, "");
-const BACKEND_URL = `${BACKEND_BASE}/query`;
-const BACKEND_HEALTH = `${BACKEND_BASE}/health`;
+const BACKEND_URL = "/api/query";
+const BACKEND_HEALTH = "/api/health";
 
 export function ChatApp() {
   const { loggedIn, user } = useAuth();
@@ -158,7 +155,7 @@ export function ChatApp() {
         {
           id: m.length + 1,
           role: "assistant",
-          text: `Error: ${err.message || "Unable to connect to the backend server."} Please make sure the backend is running at http://localhost:8000.`,
+          text: `Error: ${err.message || "Unable to connect to the backend server."} Please make sure the backend is running at /api.`,
         },
       ]);
     } finally {

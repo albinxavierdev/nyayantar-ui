@@ -409,7 +409,7 @@ if __name__ == "__main__":
     print("\n" + "=" * 60)
     print("STARTING FASTAPI SERVER")
     print("=" * 60)
-    port = int(os.getenv("PORT", "8000"))
+    port = int(os.getenv("PORT", "8020"))
     host = os.getenv("HOST", "127.0.0.1")  # Bind locally; put a TLS proxy in front for external access
     print(f"Server URL: http://{host}:{port}")
     print("\nAvailable Endpoints:")
