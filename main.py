@@ -431,4 +431,4 @@ if __name__ == "__main__":
         print(f"  Cloud LLM (Groq): ✗ Not configured")
     print("=" * 60 + "\n")
 
-    uvicorn.run(app, host=host, port=port)
+    uvicorn.run(app, host=host, port=port, loop="asyncio")
