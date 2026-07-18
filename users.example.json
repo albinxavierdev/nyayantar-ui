@@ -1,0 +1,9 @@
+{
+  "users": [
+    {
+      "email": "admin@yourfirm.com",
+      "password_hash": "<bcrypt hash — generate with: python -c \"import bcrypt;print(bcrypt.hashpw(b'CHANGE_ME', bcrypt.gensalt()).decode())\">",
+      "role": "admin"
+    }
+  ]
+}

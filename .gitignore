@@ -34,6 +34,10 @@ ENV/
 *~
 .DS_Store
 
+# Secrets / runtime data
+users.json
+users.json.bak
+
 # Environment variables
 .env
 .env.local
@@ -67,10 +71,13 @@ htmlcov/
 
 # Database files
 *.db
+*.db-wal
+*.db-shm
 *.sqlite
 *.sqlite3
 index/data/*.db
 index/data/*.json
+data/app.db*
 
 # Jupyter Notebooks
 .ipynb_checkpoints/

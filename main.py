@@ -410,7 +410,8 @@ if __name__ == "__main__":
     print("STARTING FASTAPI SERVER")
     print("=" * 60)
     port = int(os.getenv("PORT", "8000"))
-    print(f"Server URL: http://0.0.0.0:{port}")
+    host = os.getenv("HOST", "127.0.0.1")  # Bind locally; put a TLS proxy in front for external access
+    print(f"Server URL: http://{host}:{port}")
     print("\nAvailable Endpoints:")
     print("  POST /tags          - Tag query with BIOES labels only")
     print("  POST /test-local    - Test local Qwen model")
@@ -430,4 +431,4 @@ if __name__ == "__main__":
         print(f"  Cloud LLM (Groq): ✗ Not configured")
     print("=" * 60 + "\n")
 
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    uvicorn.run(app, host=host, port=port)

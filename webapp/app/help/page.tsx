@@ -24,7 +24,7 @@ export default function HelpPage() {
           <p className="mt-2 text-sm leading-6 text-text-muted">
             Learn how to set up your workspace, run your first research query, and review citations.
           </p>
-          <Button href="#" variant="secondary" size="md" className="mt-4">
+          <Button variant="secondary" size="md" className="mt-4">
             Read guide
           </Button>
         </div>

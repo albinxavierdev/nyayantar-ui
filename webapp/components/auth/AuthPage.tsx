@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState, type FormEvent } from "react";
+import { useId, useState, useEffect, useRef, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
@@ -12,6 +12,11 @@ import { Logo } from "@/components/ui/Logo";
 import { useAuth } from "@/components/providers/AuthProvider";
 import { EASE } from "@/lib/motion";
 import { authBenefits, inputClass } from "@/lib/constants";
+
+const BACKEND_URL = (
+  process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"
+).replace(/\/$/, "");
+const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || "";
 
 type PageMode = "login" | "register";
 
@@ -46,9 +51,113 @@ function AuthCard({ mode }: { mode: PageMode }) {
   const passwordId = useId();
   const confirmId = useId();
   const otpId = useId();
+  const googleBtnRef = useRef<HTMLDivElement>(null);
 
   const isRegister = mode === "register";
   const current = copy[mode];
+
+  // Real Google sign-in via Google Identity Services (GIS).
+  useEffect(() => {
+    if (!GOOGLE_CLIENT_ID || !googleBtnRef.current) return;
+
+    const script = document.createElement("script");
+    script.src = "https://accounts.google.com/gsi/client";
+    script.async = true;
+    script.onload = () => {
+      const g = (window as any).google;
+      if (!g?.accounts?.id) return;
+      g.accounts.id.initialize({
+        client_id: GOOGLE_CLIENT_ID,
+        callback: handleGoogleCredential,
+      });
+      const el = googleBtnRef.current;
+      if (!el) return;
+      g.accounts.id.renderButton(el, {
+        theme: "outline",
+        size: "large",
+        width: el.clientWidth || 320,
+        text: isRegister ? "signup_with" : "signin_with",
+      });
+    };
+    document.body.appendChild(script);
+    return () => {
+      if (script.parentNode) script.parentNode.removeChild(script);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRegister, GOOGLE_CLIENT_ID]);
+
+  const handleGoogleCredential = async (response: { credential?: string }) => {
+    if (!response.credential) {
+      setError("Google sign-in did not return a credential.");
+      return;
+    }
+    setError(null);
+    setStatus(null);
+    try {
+      const res = await fetch(`${BACKEND_URL}/auth/google`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Requested-With": "nyayantar" },
+        credentials: "include",
+        body: JSON.stringify({ credential: response.credential }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data?.detail || "Google sign-in failed.");
+        return;
+      }
+      const data = await res.json();
+      const u = data?.user ?? {};
+      const email: string = u.email ?? "";
+      login({ email, name: u.name ?? null, role: u.role ?? "user", plan: u.plan ?? "free", purchased: Boolean(u.purchased) });
+      router.push("/chat");
+    } catch {
+      setError("Could not reach the authentication server. Please try again.");
+    }
+  };
+
+  const performLogin = async (email: string, password?: string, name?: string) => {
+    try {
+      if (isRegister) {
+        const res = await fetch(`${BACKEND_URL}/auth/register`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Requested-With": "nyayantar" },
+          credentials: "include",
+          body: JSON.stringify({ email, password, name }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          setError(data?.detail || "Could not create account. Please try again.");
+          setStatus(null);
+          return;
+        }
+        const data = await res.json();
+        const u = data?.user ?? {};
+        login({ email, name, role: u.role ?? "user", plan: u.plan ?? "free", purchased: Boolean(u.purchased) });
+        router.push("/chat");
+        return;
+      }
+
+      const res = await fetch(`${BACKEND_URL}/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Requested-With": "nyayantar" },
+        credentials: "include",
+        body: JSON.stringify({ email, password }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data?.detail || "Invalid email or password.");
+        setStatus(null);
+        return;
+      }
+      const data = await res.json();
+      const u = data?.user ?? {};
+      login({ email, name: u.name ?? null, role: u.role ?? "user", plan: u.plan ?? "free", purchased: Boolean(u.purchased) });
+      router.push("/chat");
+    } catch {
+      setError("Could not reach the authentication server. Please try again.");
+      setStatus(null);
+    }
+  };
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -60,8 +169,8 @@ function AuthCard({ mode }: { mode: PageMode }) {
       const password = String(formData.get("password") || "");
       const confirm = String(formData.get("confirm") || "");
 
-      if (!name || !email || !password) {
-        setError("Please fill in your name, email, and password.");
+      if (!email || !password) {
+        setError("Please fill in your email and password.");
         return;
       }
 
@@ -70,19 +179,14 @@ function AuthCard({ mode }: { mode: PageMode }) {
         return;
       }
 
-      const otpCode = String(formData.get("otp") || "").trim();
-      if (!/^\d{6}$/.test(otpCode)) {
-        setError("Enter the 6-digit OTP sent to your email.");
+      if (password.length < 8) {
+        setError("Password must be at least 8 characters.");
         return;
       }
 
       setError(null);
       setStatus(null);
-      login({
-        name,
-        email,
-      });
-      router.push("/chat");
+      performLogin(email, password);
       return;
     }
 
@@ -94,8 +198,7 @@ function AuthCard({ mode }: { mode: PageMode }) {
 
     setError(null);
     setStatus(null);
-    login({ email });
-    router.push("/chat");
+    performLogin(email, password);
   };
 
   return (
@@ -197,34 +300,17 @@ function AuthCard({ mode }: { mode: PageMode }) {
               </div>
 
               <div className="mb-2">
-                <label htmlFor={confirmId} className="mb-1.5 block text-sm font-medium text-text">
+                <label htmlFor="register-confirm" className="mb-1.5 block text-sm font-medium text-text">
                   Confirm password
                 </label>
                 <input
-                  id={confirmId}
+                  id="register-confirm"
                   name="confirm"
                   type="password"
                   autoComplete="new-password"
                   placeholder="••••••••"
                   className={inputClass}
                 />
-              </div>
-
-              <div className="mb-2">
-                <label htmlFor="register-otp" className="mb-1.5 block text-sm font-medium text-text">
-                  OTP
-                </label>
-                <input
-                  id="register-otp"
-                  name="otp"
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  placeholder="123456"
-                  className={`${inputClass} tracking-[0.35em] text-center text-base`}
-                />
-                <p className="mt-1.5 text-xs text-text-muted">
-                  Enter the 6-digit code sent to your email.
-                </p>
               </div>
             </>
           )}
@@ -241,25 +327,42 @@ function AuthCard({ mode }: { mode: PageMode }) {
             </Button>
           </div>
 
-          <div className="my-5 flex items-center gap-3 text-xs text-text-muted">
-            <span className="h-px flex-1 bg-border" />
-            or continue with
-            <span className="h-px flex-1 bg-border" />
-          </div>
+          {GOOGLE_CLIENT_ID ? (
+            <>
+              <div className="my-5 flex items-center gap-3 text-xs text-text-muted">
+                <span className="h-px flex-1 bg-border" />
+                or continue with
+                <span className="h-px flex-1 bg-border" />
+              </div>
 
-          <Button
-            type="button"
-            variant="secondary"
-            size="lg"
-            className="w-full"
-            onClick={() => {
-              login();
-              router.push("/chat");
-            }}
-          >
-            <Icon name="globe" size={18} />
-            Continue with SSO
-          </Button>
+              {/* Real Google sign-in button (rendered by Google Identity Services). */}
+              <div
+                ref={googleBtnRef}
+                className="flex w-full justify-center"
+                aria-label="Login with Google"
+              />
+            </>
+          ) : (
+            <>
+              <div className="my-5 flex items-center gap-3 text-xs text-text-muted">
+                <span className="h-px flex-1 bg-border" />
+                or continue with
+                <span className="h-px flex-1 bg-border" />
+              </div>
+
+              <Button
+                type="button"
+                variant="secondary"
+                size="lg"
+                className="w-full"
+                disabled
+                title="Google sign-in is not configured"
+              >
+                <Icon name="google" size={18} />
+                Google sign-in unavailable
+              </Button>
+            </>
+          )}
 
           <p className="mt-5 text-center text-sm text-text-muted">
             {current.footnote}{" "}

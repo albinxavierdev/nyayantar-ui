@@ -15,6 +15,8 @@ type ButtonProps = {
   onClick?: () => void;
   showArrow?: boolean;
   type?: "button" | "submit";
+  disabled?: boolean;
+  title?: string;
 };
 
 const base =
@@ -73,20 +75,22 @@ const ButtonInner = memo(function ButtonInner({
 
 export const Button = memo(function Button({
   children,
-  href = "#",
+  href,
   variant = "primary",
   size = "md",
   className = "",
   onClick,
   showArrow = false,
   type = "button",
+  disabled = false,
+  title,
 }: ButtonProps) {
   const cls = `${base} ${sizes[size]} ${variants[variant]} ${className}`;
 
   if (href && (href.startsWith("#") || href.startsWith("/") || href.startsWith("http"))) {
     if (href.startsWith("http")) {
       return (
-        <a href={href} className={cls} onClick={onClick}>
+        <a href={href} className={cls} onClick={onClick} title={title}>
           <ButtonInner showArrow={showArrow}>{children}</ButtonInner>
         </a>
       );
@@ -94,20 +98,20 @@ export const Button = memo(function Button({
 
     if (href.startsWith("/")) {
       return (
-        <Link href={href} className={cls} onClick={onClick}>
+        <Link href={href} className={cls} onClick={onClick} title={title}>
           <ButtonInner showArrow={showArrow}>{children}</ButtonInner>
         </Link>
       );
     }
 
     return (
-      <a href={href} className={cls} onClick={onClick}>
+      <a href={href} className={cls} onClick={onClick} title={title}>
         <ButtonInner showArrow={showArrow}>{children}</ButtonInner>
       </a>
     );
   }
   return (
-    <button type={type} className={cls} onClick={onClick}>
+    <button type={type} className={cls} onClick={onClick} disabled={disabled} title={title}>
       <ButtonInner showArrow={showArrow}>{children}</ButtonInner>
     </button>
   );

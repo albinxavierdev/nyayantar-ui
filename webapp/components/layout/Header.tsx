@@ -36,8 +36,8 @@ export function Header({ showAuthActions = true }: HeaderProps) {
   }, [handleMenuClose, logout]);
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-border bg-page/80 backdrop-blur-md">
-      <div className="section-shell">
+    <header className="sticky top-0 z-[100] w-full border-b border-border bg-page/80 backdrop-blur-md">
+      <div className="section-shell overflow-visible">
         <div className="section-container">
           <div className="content-container mx-auto flex items-center justify-between px-4 py-3.5 md:px-10">
             <Link href="/" className="flex items-center gap-2.5">
@@ -66,7 +66,7 @@ export function Header({ showAuthActions = true }: HeaderProps) {
               {showAuthActions && (
                 <>
                   {loggedIn ? (
-                    <div className="relative">
+                    <div className="relative z-[110]">
                       <button
                         type="button"
                         onClick={handleMenuToggle}
@@ -94,7 +94,7 @@ export function Header({ showAuthActions = true }: HeaderProps) {
                             animate={{ opacity: 1, y: 0 }}
                             exit={{ opacity: 0, y: 8 }}
                             transition={{ duration: 0.25, ease: [0.44, 0, 0.56, 1] }}
-                            className="absolute right-0 top-full z-50 mt-2 w-60 overflow-hidden rounded-2xl border border-border bg-surface p-2 shadow-[0_16px_40px_rgba(141,75,44,0.12)]"
+                            className="absolute right-0 top-full z-[120] mt-2 w-60 overflow-hidden rounded-2xl border border-border bg-surface p-2 shadow-[0_16px_40px_rgba(141,75,44,0.12)]"
                             role="menu"
                             aria-orientation="vertical"
                           >
@@ -120,6 +120,15 @@ export function Header({ showAuthActions = true }: HeaderProps) {
                             >
                               <Icon name="users" size={16} />
                               Open workspace
+                            </Link>
+                            <Link
+                              href="/profile"
+                              onClick={handleMenuClose}
+                              className="flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-sm font-medium text-text-muted framer-transition hover:bg-surface-tint hover:text-text"
+                              role="menuitem"
+                            >
+                              <Icon name="settings" size={16} />
+                              Profile
                             </Link>
                             <Link
                               href="/admin"
@@ -216,6 +225,13 @@ export function Header({ showAuthActions = true }: HeaderProps) {
                         className="rounded-xl px-3 py-2.5 text-sm font-medium text-text-muted hover:bg-surface-tint hover:text-text"
                       >
                         Open workspace
+                      </Link>
+                      <Link
+                        href="/profile"
+                        onClick={() => setOpen(false)}
+                        className="rounded-xl px-3 py-2.5 text-sm font-medium text-text-muted hover:bg-surface-tint hover:text-text"
+                      >
+                        Profile
                       </Link>
                       <Link
                         href="/admin"

@@ -1,0 +1,17 @@
+# Dependencies
+node_modules/
+
+# Next.js build output
+.next/
+out/
+
+# Env (secrets / local config — do NOT commit)
+.env.local
+.env*.local
+
+# User data (do NOT commit)
+users.json
+# TypeScript / editor
+*.tsbuildinfo
+.DS_Store
+.env

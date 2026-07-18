@@ -5,9 +5,13 @@ import { Icon } from "@/components/ui/Icon";
 import { Logo } from "@/components/ui/Logo";
 import { type Message } from "@/lib/constants";
 import { sanitizeText } from "@/lib/utils";
-import { useAuth, hasRole } from "@/components/providers/AuthProvider";
+import { useAuth, hasRole, getAuthHeaders } from "@/components/providers/AuthProvider";
 
-const BACKEND_URL = "http://localhost:8000/query";
+const BACKEND_BASE = (
+  process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8000"
+).replace(/\/$/, "");
+const BACKEND_URL = `${BACKEND_BASE}/query`;
+const BACKEND_HEALTH = `${BACKEND_BASE}/health`;
 
 export function ChatApp() {
   const { loggedIn, user } = useAuth();
@@ -49,9 +53,10 @@ export function ChatApp() {
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 5000);
-      const res = await fetch("http://localhost:8000/health", {
+      const res = await fetch(BACKEND_HEALTH, {
         method: "GET",
         signal: controller.signal,
+        credentials: "include",
       });
       clearTimeout(timeout);
       return res.ok;
@@ -89,9 +94,8 @@ export function ChatApp() {
     try {
       const res = await fetch(BACKEND_URL, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: getAuthHeaders(),
+        credentials: "include",
         body: JSON.stringify({ query: text }),
       });
 
