@@ -59,6 +59,7 @@ def init_db() -> None:
                 name          TEXT,
                 plan          TEXT NOT NULL DEFAULT 'free',
                 purchased     INTEGER NOT NULL DEFAULT 0,
+                account_type  TEXT,
                 created_at    REAL NOT NULL,
                 updated_at    REAL NOT NULL
             );
@@ -115,6 +116,7 @@ def init_db() -> None:
             "name": "TEXT",
             "plan": "TEXT NOT NULL DEFAULT 'free'",
             "purchased": "INTEGER NOT NULL DEFAULT 0",
+            "account_type": "TEXT",
         })
         conn.commit()
     finally:
@@ -217,6 +219,7 @@ def update_user(
     name: Optional[str] = None,
     plan: Optional[str] = None,
     purchased: Optional[bool] = None,
+    account_type: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     """Update mutable profile fields for a user. Returns the public profile or None."""
     _ensure()
@@ -232,12 +235,14 @@ def update_user(
                    name = COALESCE(?, name),
                    plan = COALESCE(?, plan),
                    purchased = COALESCE(?, purchased),
+                   account_type = COALESCE(?, account_type),
                    updated_at = ?
                WHERE email = ?""",
             (
                 name if name is not None else existing.get("name"),
                 plan if plan is not None else existing.get("plan"),
                 (1 if purchased else 0) if purchased is not None else existing.get("purchased"),
+                account_type if account_type is not None else existing.get("account_type"),
                 now,
                 email,
             ),

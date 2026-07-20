@@ -466,7 +466,9 @@ def process_ask_query(
     query: str,
     entities: List[Dict],
     bioes_tags: List[Dict],
-    context: Optional[str] = None
+    context: Optional[str] = None,
+    file_content: Optional[str] = None,
+    file_name: Optional[str] = None,
 ) -> Dict:
     """
     Process an ASK query with document retrieval pipeline.

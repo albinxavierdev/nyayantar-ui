@@ -7,7 +7,7 @@ import platform
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).parent.resolve()
-BACKEND_PORT = 8020
+BACKEND_PORT = 8000
 WEBAPP_PORT = 3000
 LOG_DIR = ROOT_DIR / ".logs"
 BACKEND_LOG = LOG_DIR / "backend.log"

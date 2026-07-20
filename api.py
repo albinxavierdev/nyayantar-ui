@@ -281,6 +281,8 @@ class TestCloudResponse(BaseModel):
 
 class QueryRequest(BaseModel):
     query: constr(min_length=1, max_length=MAX_QUERY_LENGTH)  # type: ignore[valid-type]
+    file_content: Optional[str] = None
+    file_name: Optional[str] = None
 
 
 class PhaseInfo(BaseModel):
@@ -594,7 +596,9 @@ async def query_full_pipeline(payload: QueryRequest, request: Request, _: None =
                 query=query,
                 entities=entities_dict,
                 bioes_tags=bioes_tags,
-                context=None
+                context=None,
+                file_content=payload.file_content,
+                file_name=payload.file_name,
             )
             final_response = ask_result.get("response")
             
@@ -646,26 +650,63 @@ async def query_full_pipeline(payload: QueryRequest, request: Request, _: None =
             ))
             
         elif resolution.agent == "DRAFT":
+            from agents.draft import process_draft_query
+            entities_dict = [
+                {"text": ent.text, "label": ent.label, "entity_type": ent.label}
+                for ent in entities
+            ]
+
+            draft_result = process_draft_query(
+                query=query,
+                entities=entities_dict,
+                bioes_tags=bioes_tags,
+                context=None,
+                file_content=payload.file_content,
+                file_name=payload.file_name,
+            )
+            final_response = draft_result.get("response", "DRAFT agent finished.")
+
             phase3_time = time.time() - phase3_start
             phases.append(PhaseInfo(
                 phase="3. Agent Processing (DRAFT)",
-                status="not_implemented",
-                output=None,
-                message="DRAFT agent not yet implemented",
+                status="completed",
+                output={
+                    "agent": "DRAFT",
+                    "document_type": draft_result.get("document_type", "Legal Document"),
+                    "response_length": len(final_response),
+                },
+                message=f"DRAFT agent generated a {draft_result.get('document_type', 'legal document')}",
                 duration_seconds=round(phase3_time, 3)
             ))
-            final_response = "DRAFT agent is not yet implemented."
-            
+
         elif resolution.agent == "INTERACT":
+            from agents.interact import process_interact_query
+            entities_dict = [
+                {"text": ent.text, "label": ent.label, "entity_type": ent.label}
+                for ent in entities
+            ]
+
+            interact_result = process_interact_query(
+                query=query,
+                entities=entities_dict,
+                bioes_tags=bioes_tags,
+                context=None,
+                file_content=payload.file_content,
+                file_name=payload.file_name,
+            )
+            final_response = interact_result.get("response", "INTERACT agent finished.")
+
             phase3_time = time.time() - phase3_start
             phases.append(PhaseInfo(
                 phase="3. Agent Processing (INTERACT)",
-                status="not_implemented",
-                output=None,
-                message="INTERACT agent not yet implemented",
+                status="completed",
+                output={
+                    "agent": "INTERACT",
+                    "response_length": len(final_response),
+                },
+                message="INTERACT agent processed the document and provided insights",
                 duration_seconds=round(phase3_time, 3)
             ))
-            final_response = "INTERACT agent is not yet implemented."
         
         total_pipeline_time = time.time() - pipeline_start
         
@@ -787,16 +828,47 @@ async def query_stream_pipeline(payload: QueryRequest, request: Request, _: None
             # Send meta event first
             yield f"data: {json.dumps({'type': 'meta', 'data': meta})}\n\n"
 
-            # ── Phase 3: Streaming LLM ──
+            # ── Phase 3: Agent Processing (with streaming where applicable) ──
             llm_start = time.time()
-            for token in generate_response_stream(
-                query=query,
-                entities=entities_dict,
-                context=None,
-                retrieved_docs=retrieved_docs,
-                web_search_results=web_search_results,
-            ):
-                yield f"data: {json.dumps({'type': 'token', 'data': token})}\n\n"
+
+            if resolution.agent == "ASK":
+                for token in generate_response_stream(
+                    query=query,
+                    entities=entities_dict,
+                    context=None,
+                    retrieved_docs=retrieved_docs,
+                    web_search_results=web_search_results,
+                    file_content=payload.file_content,
+                    file_name=payload.file_name,
+                ):
+                    yield f"data: {json.dumps({'type': 'token', 'data': token})}\n\n"
+            else:
+                # DRAFT / INTERACT: generate the full response then stream it word-by-word.
+                if resolution.agent == "DRAFT":
+                    from agents.draft import process_draft_query
+                    agent_result = process_draft_query(
+                        query=query,
+                        entities=entities_dict,
+                        bioes_tags=bioes_tags,
+                        context=None,
+                        file_content=payload.file_content,
+                        file_name=payload.file_name,
+                    )
+                else:  # INTERACT
+                    from agents.interact import process_interact_query
+                    agent_result = process_interact_query(
+                        query=query,
+                        entities=entities_dict,
+                        bioes_tags=bioes_tags,
+                        context=None,
+                        file_content=payload.file_content,
+                        file_name=payload.file_name,
+                    )
+                full_response = agent_result.get("response", "")
+                words = full_response.split()
+                for i, word in enumerate(words):
+                    yield f"data: {json.dumps({'type': 'token', 'data': word + (' ' if i < len(words) - 1 else '')})}\n\n"
+                    time.sleep(0.02)
 
             llm_time = time.time() - llm_start
             total_time = time.time() - pipeline_start
@@ -1081,6 +1153,28 @@ async def auth_purchase(payload: PurchaseRequest, request: Request, _csrf: None 
     if not updated:
         raise HTTPException(status_code=404, detail="User not found.")
     sec.audit_event("account.purchased", email=email, detail=payload.plan)
+    return {"user": updated}
+
+
+class AccountTypeRequest(BaseModel):
+    account_type: constr(min_length=1, max_length=30)  # type: ignore[valid-type]
+
+
+@app.post("/auth/account-type")
+@limiter.limit(os.getenv("RATE_LIMIT_LOGIN", "10/minute"))
+async def auth_account_type(payload: AccountTypeRequest, request: Request, _csrf: None = Depends(require_csrf)):
+    """Record whether the account is Individual or Organization during free trial."""
+    claims = _session_claims(request)
+    if not claims:
+        raise HTTPException(status_code=401, detail="Not authenticated.")
+    email = claims.get("email", "")
+    account_type = payload.account_type.strip().lower()
+    if account_type not in ("individual", "organization"):
+        raise HTTPException(status_code=400, detail="account_type must be 'individual' or 'organization'.")
+    updated = db.update_user(email, account_type=account_type)
+    if not updated:
+        raise HTTPException(status_code=404, detail="User not found.")
+    sec.audit_event("account.type_set", email=email, detail=account_type)
     return {"user": updated}
 
 

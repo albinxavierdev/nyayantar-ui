@@ -1,8 +1,11 @@
+"use client";
+
 import { PageShell } from "@/components/layout/PageShell";
 import { ContactForm } from "@/components/contact/ContactForm";
 import { Button } from "@/components/ui/Button";
 import { Reveal } from "@/components/ui/Reveal";
 import { Icon } from "@/components/ui/Icon";
+import { useAuth } from "@/components/providers/AuthProvider";
 
 const routes = [
   {
@@ -23,20 +26,19 @@ const routes = [
 ] as const;
 
 export default function ContactPage() {
+  const { loggedIn } = useAuth();
+
   return (
     <PageShell
       eyebrow="Support"
       title="Contact and support routing."
       description="Use this page when you need to reach the right path quickly. It keeps support, privacy, security, and feedback organized without changing the site's brand feel."
       actions={
-        <>
-          <Button href="/feedback" variant="secondary" size="lg">
-            Feedback
+        !loggedIn ? (
+          <Button href="/pricing" size="lg" showArrow>
+            See plans
           </Button>
-          <Button href="/login" size="lg" showArrow>
-            Sign in
-          </Button>
-        </>
+        ) : undefined
       }
     >
       <div className="grid gap-6 lg:grid-cols-[1fr_360px]">

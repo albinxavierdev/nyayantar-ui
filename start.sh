@@ -7,7 +7,7 @@
 set -e
 
 ROOT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BACKEND_PORT=8020
+BACKEND_PORT=8000
 WEBAPP_PORT=3000
 BACKEND_LOG="$ROOT_DIR/.logs/backend.log"
 WEBAPP_LOG="$ROOT_DIR/.logs/webapp.log"

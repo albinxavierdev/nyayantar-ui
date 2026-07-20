@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useRef, useEffect } from "react";
+import { Fragment, useState, useCallback, useRef, useEffect } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { Logo } from "@/components/ui/Logo";
 import { type Message } from "@/lib/constants";
@@ -10,11 +10,20 @@ import { useAuth, hasRole, getAuthHeaders } from "@/components/providers/AuthPro
 const BACKEND_URL = "/api/query";
 const BACKEND_HEALTH = "/api/health";
 
+export type ChatMode = "ask" | "draft" | "interact";
+
+type Thread = {
+  id: string;
+  title: string;
+  mode: ChatMode;
+  messages: Message[];
+};
+
 export function ChatApp() {
   const { loggedIn, user } = useAuth();
-  const [threads, setThreads] = useState<{ id: string; title: string; active: boolean }[]>([]);
+  const [threads, setThreads] = useState<Thread[]>([]);
   const [activeThread, setActiveThread] = useState<string | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [mode, setMode] = useState<ChatMode>("ask");
   const [draft, setDraft] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -23,6 +32,17 @@ export function ChatApp() {
   const [profileDetailsOpen, setProfileDetailsOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [fileUploading, setFileUploading] = useState(false);
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const [isListening, setIsListening] = useState(false);
+  const [speechRecognition, setSpeechRecognition] = useState<any>(null);
+  const [plusOpen, setPlusOpen] = useState(false);
+  const plusRef = useRef<HTMLDivElement>(null);
+  const [demoNotice, setDemoNotice] = useState<string | null>(null);
+
+  // Messages for the currently active thread (derived, never shared).
+  const activeThreadData = threads.find((t) => t.id === activeThread) ?? null;
+  const messages = activeThreadData?.messages ?? [];
 
   useEffect(() => {
     if (sidebarOpen && textareaRef.current) {
@@ -46,6 +66,35 @@ export function ChatApp() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [profileOpen]);
 
+  useEffect(() => {
+    if (!plusOpen) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (plusRef.current && !plusRef.current.contains(event.target as Node)) {
+        setPlusOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [plusOpen]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) return;
+    const recognition = new SR();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = "en-US";
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript;
+      setDraft((d) => (d ? d + " " + transcript : transcript));
+      setIsListening(false);
+    };
+    recognition.onerror = () => setIsListening(false);
+    recognition.onend = () => setIsListening(false);
+    setSpeechRecognition(recognition);
+  }, []);
+
   const checkBackend = useCallback(async (): Promise<boolean> => {
     try {
       const controller = new AbortController();
@@ -62,6 +111,44 @@ export function ChatApp() {
     }
   }, []);
 
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!/^text\/|\.txt$|\.md$|\.pdf$/i.test(file.type + file.name)) {
+      setBackendError("Please upload a .txt, .md, or .pdf file.");
+      return;
+    }
+    setFileUploading(true);
+    setUploadedFile(file);
+    try {
+      const text = await file.text();
+      setDraft((d) => (d ? d + " " : "") + `[Document: ${file.name}]\n${text.slice(0, 8000)}`);
+    } catch {
+      setBackendError("Could not read the uploaded file.");
+    } finally {
+      setFileUploading(false);
+    }
+  };
+
+  const startVoiceInput = () => {
+    if (!speechRecognition) {
+      setBackendError("Speech recognition is not supported in this browser.");
+      return;
+    }
+    try {
+      speechRecognition.start();
+      setIsListening(true);
+    } catch {
+      setBackendError("Failed to start voice input.");
+    }
+  };
+
+  const stopVoiceInput = () => {
+    if (speechRecognition) speechRecognition.stop();
+    setIsListening(false);
+  };
+
   const send = useCallback(async () => {
     const text = sanitizeText(draft);
     if (!text || loading) return;
@@ -69,21 +156,31 @@ export function ChatApp() {
     const newThreadId = activeThread ?? `t-${Date.now()}`;
     const newThreadTitle = text.slice(0, 40) + (text.length > 40 ? "…" : "");
 
+    // Ensure a thread exists for this conversation (creates one if needed).
     setThreads((t) => {
       const exists = t.find((x) => x.id === newThreadId);
       if (exists) {
         return t.map((x) =>
-          x.id === newThreadId ? { ...x, title: newThreadTitle, active: true } : { ...x, active: false }
+          x.id === newThreadId
+            ? { ...x, title: newThreadTitle, mode, active: true }
+            : { ...x, active: false }
         );
       }
       return [
-        { id: newThreadId, title: newThreadTitle, active: true },
+        { id: newThreadId, title: newThreadTitle, mode, messages: [] },
         ...t.map((x) => ({ ...x, active: false })),
       ];
     });
 
     setActiveThread(newThreadId);
-    setMessages((m) => [...m, { id: m.length + 1, role: "user", text }]);
+    // Append the user message to THIS thread only (no cross-thread sharing).
+    setThreads((t) =>
+      t.map((x) =>
+        x.id === newThreadId
+          ? { ...x, messages: [...x.messages, { id: (x.messages.at(-1)?.id ?? 0) + 1, role: "user", text }] }
+          : x
+      )
+    );
     setDraft("");
     setLoading(true);
     setBackendError(null);
@@ -93,7 +190,11 @@ export function ChatApp() {
         method: "POST",
         headers: getAuthHeaders(),
         credentials: "include",
-        body: JSON.stringify({ query: text }),
+        body: JSON.stringify({
+          query: text,
+          file_content: uploadedFile ? draft : undefined,
+          file_name: uploadedFile ? uploadedFile.name : undefined,
+        }),
       });
 
       if (!res.ok) {
@@ -138,30 +239,48 @@ export function ChatApp() {
         throw new Error("The server returned an empty response.");
       }
 
-      setMessages((m) => [
-        ...m,
-        {
-          id: m.length + 1,
-          role: "assistant",
-          text: finalResponse,
-          citations: citations.length > 0 ? citations : undefined,
-        },
-      ]);
+      setThreads((t) =>
+        t.map((x) =>
+          x.id === newThreadId
+            ? {
+                ...x,
+                messages: [
+                  ...x.messages,
+                  {
+                    id: (x.messages.at(-1)?.id ?? 0) + 1,
+                    role: "assistant" as const,
+                    text: finalResponse,
+                    citations: citations.length > 0 ? citations : undefined,
+                  },
+                ],
+              }
+            : x
+        )
+      );
     } catch (err: any) {
       console.error("Error communicating with backend:", err);
       setBackendError(err.message || "Unknown error");
-      setMessages((m) => [
-        ...m,
-        {
-          id: m.length + 1,
-          role: "assistant",
-          text: `Error: ${err.message || "Unable to connect to the backend server."} Please make sure the backend is running at /api.`,
-        },
-      ]);
+      setThreads((t) =>
+        t.map((x) =>
+          x.id === newThreadId
+            ? {
+                ...x,
+                messages: [
+                  ...x.messages,
+                  {
+                    id: (x.messages.at(-1)?.id ?? 0) + 1,
+                    role: "assistant" as const,
+                    text: `Error: ${err.message || "Unable to connect to the backend server."} Please make sure the backend is running at /api.`,
+                  },
+                ],
+              }
+            : x
+        )
+      );
     } finally {
       setLoading(false);
     }
-  }, [draft, loading, activeThread]);
+  }, [draft, loading, activeThread, mode, uploadedFile]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -205,6 +324,12 @@ export function ChatApp() {
           <div className="p-3">
             <button
               type="button"
+              onClick={() => {
+                setActiveThread(null);
+                setMode("ask");
+                setDraft("");
+                setSidebarOpen(false);
+              }}
               className="flex w-full items-center gap-2 rounded-xl border border-border bg-surface px-3 py-2.5 text-sm font-medium text-text framer-transition hover:border-text/30"
             >
               <Icon name="spark" size={16} className="text-accent1" />
@@ -212,30 +337,71 @@ export function ChatApp() {
             </button>
           </div>
 
-          <nav className="flex-1 space-y-1 overflow-y-auto px-3 pb-3" aria-label="Chat threads">
-            {threads.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => {
-                  setActiveThread(t.id);
-                  setSidebarOpen(false);
-                }}
-                className={`flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm framer-transition ${
-                  t.id === activeThread
-                    ? "bg-surface text-text shadow-[0_4px_14px_rgba(141,75,44,0.08)]"
-                    : "text-text-muted hover:bg-surface hover:text-text"
-                }`}
-                aria-current={t.id === activeThread ? "true" : undefined}
-              >
-                <Icon
-                  name="search"
-                  size={15}
-                  className={t.id === activeThread ? "text-accent1" : ""}
-                />
-                <span className="truncate">{t.title}</span>
-              </button>
-            ))}
+          <nav className="flex-1 space-y-1 overflow-y-auto px-3 pb-3" aria-label="Workspace sections">
+            {([
+              { key: "ask", label: "Ask", icon: "spark" },
+              { key: "draft", label: "Draft", icon: "doc" },
+              { key: "interact", label: "Interact", icon: "layers" },
+            ] as const).map((s) => {
+              const isActive = mode === s.key && !activeThread;
+              return (
+                <button
+                  key={s.key}
+                  type="button"
+                  onClick={() => {
+                    setMode(s.key);
+                    setActiveThread(null);
+                    setSidebarOpen(false);
+                  }}
+                  aria-pressed={isActive}
+                  className={`flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm framer-transition ${
+                    isActive
+                      ? "bg-surface text-text shadow-[0_4px_14px_rgba(141,75,44,0.08)]"
+                      : "text-text-muted hover:bg-surface hover:text-text"
+                  }`}
+                >
+                  <Icon name={s.icon as any} size={15} className={isActive ? "text-accent1" : ""} />
+                  {s.label}
+                  {isActive && (
+                    <span className="ml-auto rounded-full bg-accent1/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-accent1">
+                      Active
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+
+            <div className="my-3 h-px bg-border" />
+
+            <p className="px-3 pb-2 text-xs font-medium text-text-muted">Recent</p>
+            {threads.length === 0 ? (
+              <p className="px-3 py-2 text-sm text-text-muted">No threads yet</p>
+            ) : (
+              threads.map((t) => (
+                <button
+                  key={t.id}
+                  type="button"
+                  onClick={() => {
+                    setActiveThread(t.id);
+                    setMode(t.mode);
+                    setSidebarOpen(false);
+                  }}
+                  className={`flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm framer-transition ${
+                    t.id === activeThread
+                      ? "bg-surface text-text shadow-[0_4px_14px_rgba(141,75,44,0.08)]"
+                      : "text-text-muted hover:bg-surface hover:text-text"
+                  }`}
+                  aria-current={t.id === activeThread ? "true" : undefined}
+                >
+                  <Icon
+                    name={t.mode === "draft" ? "doc" : t.mode === "interact" ? "layers" : "search"}
+                    size={15}
+                    className={t.id === activeThread ? "text-accent1" : ""}
+                  />
+                  <span className="truncate">{t.title}</span>
+                </button>
+              ))
+            )}
           </nav>
 
           <div className="absolute bottom-0 left-0 right-0 border-t border-border bg-surface-tint/40 p-3">
@@ -361,21 +527,42 @@ export function ChatApp() {
             <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-surface-tint text-accent1">
               <Icon name="brain" size={18} />
             </span>
-            <div className="leading-tight">
-              <p className="text-sm font-semibold text-text">
-                Nyayantar Assistant
-              </p>
-              <p className="text-xs text-text-muted">
-                {isBackendOffline ? (
-                  <span className="inline-flex items-center gap-1.5 text-fire-brick">
-                    <span className="h-1.5 w-1.5 rounded-full bg-fire-brick animate-pulse" />
-                    Backend offline
+              <div className="leading-tight">
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-semibold text-text">
+                    {uploadedFile ? `Analyzing: ${uploadedFile.name}` : "Nyayantar Assistant"}
+                  </p>
+                  <span
+                    className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                      mode === "ask"
+                        ? "bg-accent1/10 text-accent1"
+                        : mode === "draft"
+                        ? "bg-accent2/10 text-accent2"
+                        : "bg-surface-tint text-text-muted"
+                    }`}
+                  >
+                    <Icon
+                      name={mode === "ask" ? "spark" : mode === "draft" ? "doc" : "layers"}
+                      size={11}
+                    />
+                    {mode}
                   </span>
-                ) : (
-                  "Cite-checked · online"
-                )}
-              </p>
-            </div>
+                </div>
+                <p className="text-xs text-text-muted">
+                  {isBackendOffline ? (
+                    <span className="inline-flex items-center gap-1.5 text-fire-brick">
+                      <span className="h-1.5 w-1.5 rounded-full bg-fire-brick animate-pulse" />
+                      Backend offline
+                    </span>
+                  ) : uploadedFile ? (
+                    "Document ready — ask questions about it"
+                  ) : isListening ? (
+                    "Listening…"
+                  ) : (
+                    "Cite-checked · online"
+                  )}
+                </p>
+              </div>
           </div>
           <span className="inline-flex items-center gap-1.5 rounded-full bg-surface-tint px-2.5 py-1 text-xs text-text-muted">
             <span className={`h-1.5 w-1.5 rounded-full ${isBackendOffline ? "bg-fire-brick" : "bg-accent2"}`} />
@@ -465,6 +652,68 @@ export function ChatApp() {
         {/* Composer */}
         <div className="border-t border-border bg-surface/80 p-3 backdrop-blur-md md:p-4">
           <div className="mx-auto flex max-w-3xl items-end gap-2 rounded-2xl border border-border bg-surface px-3 py-2">
+            <input
+              type="file"
+              id="file-upload"
+              accept=".txt,.md,.pdf"
+              className="hidden"
+              onChange={handleFileUpload}
+            />
+
+            {/* + button with popover (attach file / connectors) */}
+            <div className="relative" ref={plusRef}>
+              <button
+                type="button"
+                onClick={() => setPlusOpen((v) => !v)}
+                aria-label="More options"
+                aria-expanded={plusOpen}
+                disabled={isBackendOffline || loading || fileUploading || isListening}
+                className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border text-text ${
+                  isBackendOffline || loading || fileUploading || isListening
+                    ? "cursor-not-allowed opacity-40"
+                    : plusOpen
+                    ? "border-accent1 text-accent1"
+                    : "hover:border-text/30"
+                }`}
+              >
+                <Icon name="plus" size={18} />
+              </button>
+
+              {plusOpen && (
+                <div className="absolute bottom-full left-0 mb-2 w-56 overflow-hidden rounded-2xl border border-border bg-surface shadow-[0_16px_40px_rgba(0,0,0,0.15)]">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPlusOpen(false);
+                      document.getElementById("file-upload")?.click();
+                    }}
+                    className="flex w-full items-center gap-3 px-4 py-3 text-left text-sm text-text framer-transition hover:bg-surface-tint"
+                  >
+                    <Icon name="doc" size={16} className="text-accent1" />
+                    <span>
+                      <span className="block font-medium">Attach file</span>
+                      <span className="block text-xs text-text-muted">Upload a document to analyze</span>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPlusOpen(false);
+                      setDemoNotice("Connectors are in demo mode — integration coming soon.");
+                      setTimeout(() => setDemoNotice(null), 4000);
+                    }}
+                    className="flex w-full items-center gap-3 border-t border-border px-4 py-3 text-left text-sm text-text framer-transition hover:bg-surface-tint"
+                  >
+                    <Icon name="layers" size={16} className="text-accent1" />
+                    <span>
+                      <span className="block font-medium">Connectors (Demo)</span>
+                      <span className="block text-xs text-text-muted">Connect Drive, Slack, Gmail…</span>
+                    </span>
+                  </button>
+                </div>
+              )}
+            </div>
+
             <textarea
               ref={textareaRef}
               rows={1}
@@ -474,22 +723,53 @@ export function ChatApp() {
               placeholder={
                 isBackendOffline
                   ? "Backend is offline — messages cannot be sent"
+                  : isListening
+                  ? "Listening… speak now"
+                  : uploadedFile
+                  ? `Ask questions about ${uploadedFile.name}`
                   : "Ask about a case, clause, or citation…"
               }
               aria-label="Chat message input"
-              disabled={isBackendOffline}
-              className={`min-w-0 flex-1 resize-none bg-transparent py-1.5 text-sm text-text outline-none placeholder:text-text-muted/60 ${isBackendOffline ? "cursor-not-allowed opacity-60" : ""}`}
+              disabled={isBackendOffline || fileUploading || isListening}
+              className={`min-w-0 flex-1 resize-none bg-transparent py-1.5 text-sm text-text outline-none placeholder:text-text-muted/60 ${
+                isBackendOffline || fileUploading || isListening ? "cursor-not-allowed opacity-60" : ""
+              }`}
             />
+
+            <button
+              type="button"
+              onClick={isListening ? stopVoiceInput : startVoiceInput}
+              aria-label={isListening ? "Stop voice input" : "Start voice input"}
+              disabled={isBackendOffline || loading || fileUploading || !speechRecognition}
+              className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border text-text ${
+                isBackendOffline || loading || fileUploading || !speechRecognition
+                  ? "cursor-not-allowed opacity-40"
+                  : isListening
+                  ? "border-accent1 text-accent1"
+                  : "hover:border-text/30"
+              }`}
+            >
+              <Icon name={isListening ? "mic" : "mic"} size={16} className={isListening ? "animate-pulse" : ""} />
+            </button>
+
             <button
               type="button"
               onClick={send}
               aria-label="Send message"
-              disabled={isBackendOffline || !draft.trim()}
-              className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg primary-gradient text-white ${isBackendOffline || !draft.trim() ? "cursor-not-allowed opacity-40" : ""}`}
+              disabled={isBackendOffline || fileUploading || isListening || !draft.trim()}
+              className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg primary-gradient text-white ${
+                isBackendOffline || fileUploading || isListening || !draft.trim() ? "cursor-not-allowed opacity-40" : ""
+              }`}
             >
               <Icon name="arrow" size={16} />
             </button>
           </div>
+
+          {demoNotice && (
+            <div className="mx-auto mt-2 max-w-3xl rounded-xl border border-accent1/20 bg-accent1/8 px-4 py-2 text-center text-xs text-text">
+              {demoNotice}
+            </div>
+          )}
         </div>
       </div>
     </div>

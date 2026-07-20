@@ -4,12 +4,14 @@ import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
 import { inputClass } from "@/lib/constants";
+import { useAuth } from "@/components/providers/AuthProvider";
 
 const categories = ["Product", "Login", "Admin", "Security", "Legal", "Other"] as const;
 
 export function FeedbackForm() {
   const [submitted, setSubmitted] = useState(false);
   const [rating, setRating] = useState(4);
+  const { loggedIn } = useAuth();
 
   return (
     <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
@@ -127,9 +129,11 @@ export function FeedbackForm() {
             <Button href="/admin" variant="secondary" size="md" className="w-full">
               Open admin panel
             </Button>
-            <Button href="/login" size="md" showArrow className="w-full">
-              Sign in
-            </Button>
+            {!loggedIn && (
+              <Button href="/pricing" size="md" showArrow className="w-full">
+                See plans
+              </Button>
+            )}
           </div>
         </div>
       </div>

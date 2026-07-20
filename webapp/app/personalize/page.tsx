@@ -4,6 +4,7 @@ import { useState } from "react";
 import { PageShell } from "@/components/layout/PageShell";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
+import { useAuth } from "@/components/providers/AuthProvider";
 
 const preferences = [
   { id: "tone", label: "Response tone", description: "Choose how the assistant sounds.", options: ["Formal", "Balanced", "Concise"] },
@@ -12,27 +13,48 @@ const preferences = [
 ];
 
 export default function PersonalizePage() {
+  const { loggedIn, user } = useAuth();
   const [selected, setSelected] = useState<Record<string, string>>({
     tone: "Balanced",
     depth: "Standard",
     citations: "Bluebook",
   });
 
+  // Not signed in: send the user to the full-screen pricing / free-trial page
+  // instead of forcing a separate sign-in/register flow.
+  if (!loggedIn) {
+    return (
+      <PageShell
+        eyebrow="Personalize"
+        title="Make Nyayantar yours."
+        description="Sign in or start a free trial to save your preferences across devices."
+      >
+        <div className="card-surface flex flex-col items-center gap-4 p-10 text-center">
+          <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-surface-tint text-accent1">
+            <Icon name="spark" size={22} />
+          </span>
+          <p className="max-w-md text-sm leading-6 text-text-muted">
+            Personalization is saved to your account. Start your free trial — no activation
+            required — and your preferences will follow you everywhere.
+          </p>
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <Button href="/pricing" size="lg" showArrow>
+              Start free trial
+            </Button>
+            <Button href="/pricing" variant="secondary" size="lg">
+              See plans
+            </Button>
+          </div>
+        </div>
+      </PageShell>
+    );
+  }
+
   return (
     <PageShell
       eyebrow="Personalize"
       title="Make Nyayantar yours."
-      description="Adjust tone, depth, and citation behavior to match how you work."
-      actions={
-        <>
-          <Button href="/login" variant="secondary" size="lg">
-            Sign in
-          </Button>
-          <Button href="/register" size="lg" showArrow>
-            Create account
-          </Button>
-        </>
-      }
+      description={`Adjust tone, depth, and citation behavior, ${user?.name ? user.name.split(" ")[0] : "friend"}.`}
     >
       <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
         <div className="card-surface p-6 md:p-8">

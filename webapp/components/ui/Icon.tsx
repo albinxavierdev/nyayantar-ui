@@ -22,7 +22,9 @@ export type IconName =
   | "google"
   | "settings"
   | "help"
-  | "star";
+  | "star"
+  | "mic"
+  | "plus";
 
 const paths: Record<IconName, JSX.Element> = {
   brain: (
@@ -109,6 +111,15 @@ const paths: Record<IconName, JSX.Element> = {
   ),
   star: (
     <path d="M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 21 12 17.77 5.82 21 7 14.14l-5-4.87 6.91-1.01z" />
+  ),
+  mic: (
+    <>
+      <rect x="9" y="3" width="6" height="11" rx="3" />
+      <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+    </>
+  ),
+  plus: (
+    <path d="M12 5v14M5 12h14" />
   ),
 };
 

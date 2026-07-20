@@ -1,21 +1,23 @@
+"use client";
+
 import { PageShell } from "@/components/layout/PageShell";
 import { Button } from "@/components/ui/Button";
+import { useAuth } from "@/components/providers/AuthProvider";
 
 export default function HelpPage() {
+  const { loggedIn } = useAuth();
+
   return (
     <PageShell
       eyebrow="Help"
       title="How can we help you?"
       description="Find answers, explore guides, and get support for Nyayantar."
       actions={
-        <>
-          <Button href="/login" variant="secondary" size="lg">
-            Sign in
+        !loggedIn ? (
+          <Button href="/pricing" size="lg" showArrow>
+            See plans
           </Button>
-          <Button href="/register" size="lg" showArrow>
-            Create account
-          </Button>
-        </>
+        ) : undefined
       }
     >
       <div className="grid gap-6 md:grid-cols-3">
