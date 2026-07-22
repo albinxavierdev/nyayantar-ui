@@ -17,6 +17,11 @@ import time
 import json
 import secrets
 import logging
+import httpx
+import time
+import json
+import secrets
+import logging
 
 # ------------------------------------------------------------------
 # Logging (no raw PII / secrets to stdout)
@@ -113,9 +118,9 @@ SECURITY_HEADERS = {
     "X-Frame-Options": "DENY",
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "strict-origin-when-cross-origin",
-    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+    "Permissions-Policy": "camera=(), microphone=('self' http://localhost:3000 http://127.0.0.1:3000), geolocation=()",
     "Strict-Transport-Security": "max-age=63072000; includeSubDomains",
-    "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+    # "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
 }
 
 
@@ -145,6 +150,9 @@ except ImportError:
     pass
 
 import spacy
+
+import whisper
+import tempfile
 
 # Import resolver for routing between ASK / INTERACT / DRAFT
 from agents.resolver import resolve_agent, ResolutionResult
@@ -283,6 +291,8 @@ class QueryRequest(BaseModel):
     query: constr(min_length=1, max_length=MAX_QUERY_LENGTH)  # type: ignore[valid-type]
     file_content: Optional[str] = None
     file_name: Optional[str] = None
+    file_id: Optional[str] = None
+
 
 
 class PhaseInfo(BaseModel):
@@ -362,6 +372,7 @@ async def root():
             "/test-local": "Test local Qwen model",
             "/test-cloud": "Test cloud Groq model",
             "/query": "Full pipeline: tagging → routing → agent response",
+            "/stt": "Transcribe audio to text using Whisper",
         },
     }
 
@@ -908,6 +919,240 @@ async def health_check():
     # Public health check (no model/secret status leaked).
     models_ready = legal_nlp is not None and preamble_nlp is not None
     return {"status": "ok" if models_ready else "starting"}
+
+
+class STTRequest(BaseModel):
+    model: str = "base"
+
+
+class STTResponse(BaseModel):
+    text: str
+    model: str
+    language: Optional[str] = None
+
+
+@app.post("/stt", response_model=STTResponse)
+@limiter.limit(os.getenv("RATE_LIMIT_STT", "30/minute"))
+async def speech_to_text(request: Request, _: None = Depends(require_auth), _csrf: None = Depends(require_csrf)):
+    """Transcribe uploaded audio to text using OpenAI Whisper."""
+    try:
+        content_type = request.headers.get("content-type", "")
+        if "multipart/form-data" not in content_type:
+            raise HTTPException(status_code=400, detail="Expected multipart/form-data with an audio file.")
+        form = await request.form()
+        upload = form.get("file")
+        if upload is None or not hasattr(upload, "filename") or not upload.filename:
+            raise HTTPException(status_code=400, detail="Missing audio file field 'file'.")
+        model_name = form.get("model") or "base"
+        suffix = os.path.splitext(upload.filename)[1] or ".wav"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            data = await upload.read()
+            tmp.write(data)
+            tmp_path = tmp.name
+        try:
+            model = whisper.load_model(model_name)
+            result = model.transcribe(tmp_path)
+            text = (result.get("text") or "").strip()
+            language = result.get("language")
+            return STTResponse(text=text, model=model_name, language=language)
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("ERROR in /stt: %s", e)
+        raise HTTPException(status_code=500, detail=GENERIC_ERROR)
+
+
+# ------------------------------------------------------------------
+# Bizfylabs RAG API integration
+# ------------------------------------------------------------------
+RAG_API_KEY = os.getenv("RAG_API_KEY", "")
+RAG_BASE_URL = os.getenv("RAG_BASE_URL", "https://rag.bizfylabs.com").rstrip("/")
+
+_rag_client = httpx.Client(timeout=300.0, follow_redirects=True)
+
+
+def _rag_headers() -> dict:
+    if not RAG_API_KEY:
+        raise HTTPException(status_code=500, detail="RAG API key is not configured on the server.")
+    return {"Authorization": f"Bearer {RAG_API_KEY}"}
+
+
+def _rag_url(path: str) -> str:
+    return f"{RAG_BASE_URL}{path}"
+
+
+class RAGUploadResponse(BaseModel):
+    collection_id: str
+    document_id: Optional[str] = None
+    job_id: Optional[str] = None
+    status: str = "accepted"
+
+
+class RAGQueryRequest(BaseModel):
+    query: str
+    collection_id: str
+    top_k: int = 5
+
+
+class RAGQueryResponse(BaseModel):
+    answer: str
+    citations: List[Dict] = []
+    collection_id: str
+
+
+def _get_or_create_collection(email: str) -> str:
+    """Get existing Nyayantar collection for user or create a new one."""
+    resp = _rag_client.get(
+        _rag_url("/collections"),
+        headers=_rag_headers(),
+    )
+    if resp.status_code == 200:
+        for coll in resp.json():
+            if coll.get("name") == f"Nyayantar-{email}":
+                return coll["id"]
+    elif resp.status_code not in (401, 403):
+        resp.raise_for_status()
+
+    create_resp = _rag_client.post(
+        _rag_url("/collections"),
+        headers={**_rag_headers(), "Content-Type": "application/json"},
+        json={"name": f"Nyayantar-{email}"},
+    )
+    create_resp.raise_for_status()
+    return create_resp.json()["id"]
+
+
+@app.post("/rag/upload", response_model=RAGUploadResponse)
+async def rag_upload(
+    request: Request,
+    _: None = Depends(require_auth),
+    _csrf: None = Depends(require_csrf),
+):
+    """Upload a file to Bizfylabs RAG API."""
+    claims = _session_claims(request) or {}
+    email = claims.get("email", "unknown")
+
+    content_type = request.headers.get("content-type", "")
+    if "multipart/form-data" not in content_type:
+        raise HTTPException(status_code=400, detail="Expected multipart/form-data.")
+
+    form = await request.form()
+    upload = form.get("file")
+    collection_id = form.get("collection_id")
+    title = form.get("title")
+
+    if upload is None or not hasattr(upload, "filename") or not upload.filename:
+        raise HTTPException(status_code=400, detail="Missing file field 'file'.")
+
+    if not collection_id:
+        collection_id = _get_or_create_collection(email)
+
+    file_bytes = await upload.read()
+    files = {
+        "file": (upload.filename, file_bytes, upload.content_type or "application/octet-stream"),
+    }
+    data = {"collection_id": str(collection_id)}
+    if title:
+        data["title"] = str(title)
+
+    resp = _rag_client.post(
+        _rag_url("/ingest/upload/async"),
+        headers=_rag_headers(),
+        files=files,
+        data=data,
+    )
+    if resp.status_code not in (200, 202):
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    payload = resp.json()
+    print("\n" + "=" * 60)
+    print("UPLOAD TO RAG SERVER")
+    print("Status Code:", resp.status_code)
+    print("Collection ID:", collection_id)
+    print("Response:")
+    print(payload)
+    print("=" * 60 + "\n")
+
+    return RAGUploadResponse(
+        collection_id=str(collection_id),
+        job_id=payload.get("job_id"),
+        status=payload.get("status", "accepted"),
+    )
+
+
+@app.post("/rag/query", response_model=RAGQueryResponse)
+async def rag_query(
+    
+    payload: RAGQueryRequest,
+    request: Request,
+    _: None = Depends(require_auth),
+    _csrf: None = Depends(require_csrf),
+    
+):
+    """Query Bizfylabs RAG API."""
+    resp = _rag_client.post(
+        _rag_url("/query"),
+        headers={**_rag_headers(), "Content-Type": "application/json"},
+        json={
+            "query": payload.query,
+            "collection_id": payload.collection_id,
+            "top_k": payload.top_k,
+        },
+    )
+    if resp.status_code != 200:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    data = resp.json()
+
+    return RAGQueryResponse(
+        answer=data.get("answer", ""),
+        citations=data.get("citations", []),
+        collection_id=payload.collection_id,
+    )
+
+
+
+@app.get("/rag/collections")
+async def rag_list_collections(_: None = Depends(require_auth), _csrf: None = Depends(require_csrf)):
+    resp = _rag_client.get(_rag_url("/collections"), headers=_rag_headers())
+    if resp.status_code != 200:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    return resp.json()
+
+
+@app.get("/rag/collections/{collection_id}")
+async def rag_get_collection(collection_id: str, _: None = Depends(require_auth), _csrf: None = Depends(require_csrf)):
+    resp = _rag_client.get(_rag_url(f"/collections/{collection_id}"), headers=_rag_headers())
+    if resp.status_code != 200:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    return resp.json()
+
+
+@app.get("/rag/jobs/{job_id}")
+async def rag_get_job(job_id: str, _: None = Depends(require_auth), _csrf: None = Depends(require_csrf)):
+    resp = _rag_client.get(_rag_url(f"/jobs/{job_id}"), headers=_rag_headers())
+    if resp.status_code != 200:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    return resp.json()
+
+
+@app.delete("/rag/documents/{document_id}")
+async def rag_delete_document(document_id: str, _: None = Depends(require_auth), _csrf: None = Depends(require_csrf)):
+    resp = _rag_client.delete(_rag_url(f"/documents/{document_id}"), headers=_rag_headers())
+    if resp.status_code not in (200, 204):
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    return Response(status_code=204)
+
+
+@app.delete("/rag/collections/{collection_id}")
+async def rag_delete_collection(collection_id: str, _: None = Depends(require_auth), _csrf: None = Depends(require_csrf)):
+    resp = _rag_client.delete(_rag_url(f"/collections/{collection_id}"), headers=_rag_headers())
+    if resp.status_code not in (200, 204):
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    return Response(status_code=204)
 
 
 # ------------------------------------------------------------------

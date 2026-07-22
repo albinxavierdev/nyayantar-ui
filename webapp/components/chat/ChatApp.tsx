@@ -34,8 +34,12 @@ export function ChatApp() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [fileUploading, setFileUploading] = useState(false);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const [ragCollectionId, setRagCollectionId] = useState<string | null>(null);
   const [isListening, setIsListening] = useState(false);
-  const [speechRecognition, setSpeechRecognition] = useState<any>(null);
+  const [transcribing, setTranscribing] = useState(false);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
   const [plusOpen, setPlusOpen] = useState(false);
   const plusRef = useRef<HTMLDivElement>(null);
   const [demoNotice, setDemoNotice] = useState<string | null>(null);
@@ -77,24 +81,6 @@ export function ChatApp() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [plusOpen]);
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SR) return;
-    const recognition = new SR();
-    recognition.continuous = false;
-    recognition.interimResults = false;
-    recognition.lang = "en-US";
-    recognition.onresult = (event: any) => {
-      const transcript = event.results[0][0].transcript;
-      setDraft((d) => (d ? d + " " + transcript : transcript));
-      setIsListening(false);
-    };
-    recognition.onerror = () => setIsListening(false);
-    recognition.onend = () => setIsListening(false);
-    setSpeechRecognition(recognition);
-  }, []);
-
   const checkBackend = useCallback(async (): Promise<boolean> => {
     try {
       const controller = new AbortController();
@@ -121,32 +107,134 @@ export function ChatApp() {
     }
     setFileUploading(true);
     setUploadedFile(file);
+    setRagCollectionId(null);
+
+    const tryRagUpload = async (): Promise<boolean> => {
+      try {
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("title", file.name);
+
+        const res = await fetch("/api/rag/upload", {
+          method: "POST",
+          headers: {
+            "X-Requested-With": "nyayantar",
+          },
+          credentials: "include",
+          body: formData,
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.detail || `Upload failed: ${res.status}`);
+        }
+
+        const data = await res.json();
+        setRagCollectionId(data.collection_id || null);
+        setDraft((d) => (d ? d + " " : "") + `[Document: ${file.name}]\nUploaded to knowledge base.`);
+        return true;
+      } catch (err: any) {
+        console.error("RAG upload error:", err);
+        return false;
+      }
+    };
+
     try {
-      const text = await file.text();
-      setDraft((d) => (d ? d + " " : "") + `[Document: ${file.name}]\n${text.slice(0, 8000)}`);
+      const ragOk = await tryRagUpload();
+      if (!ragOk) {
+        if (/\.pdf$/i.test(file.name)) {
+          setBackendError("PDF requires the Bizfylabs RAG API key. Configure RAG_API_KEY in .env, or upload .txt/.md files.");
+          setUploadedFile(null);
+        } else {
+          const text = await file.text();
+          setDraft((d) => (d ? d + " " : "") + `[Document: ${file.name}]\n${text.slice(0, 8000)}`);
+        }
+      }
     } catch {
       setBackendError("Could not read the uploaded file.");
+      setUploadedFile(null);
     } finally {
       setFileUploading(false);
     }
   };
 
-  const startVoiceInput = () => {
-    if (!speechRecognition) {
-      setBackendError("Speech recognition is not supported in this browser.");
+  const startVoiceInput = async () => {
+    setBackendError(null);
+    setVoiceError(null);
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setVoiceError("Microphone is not supported in this browser. Please use a modern browser like Chrome, Firefox, or Edge.");
       return;
     }
     try {
-      speechRecognition.start();
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+      mediaRecorder.ondataavailable = (event: BlobEvent) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+      mediaRecorder.onstop = async () => {
+        stream.getTracks().forEach((track) => track.stop());
+        setIsListening(false);
+        setTranscribing(true);
+        try {
+          const mimeType = mediaRecorder.mimeType || "audio/webm";
+          const blob = new Blob(audioChunksRef.current, { type: mimeType });
+          const ext = mimeType.includes("mp4") ? "mp4" : mimeType.includes("wav") ? "wav" : "webm";
+          const formData = new FormData();
+          formData.append("file", blob, `audio.${ext}`);
+          formData.append("model", "base");
+
+          const res = await fetch("/api/stt", {
+            method: "POST",
+            headers: {
+              "X-Requested-With": "nyayantar",
+            },
+            credentials: "include",
+            body: formData,
+          });
+
+          if (!res.ok) {
+            throw new Error(`STT failed: ${res.status}`);
+          }
+
+          const data = await res.json();
+          const transcript = data?.text?.trim();
+          if (transcript) {
+            setDraft((d) => (d ? d + " " + transcript : transcript));
+            setVoiceError(null);
+          } else {
+            setVoiceError("No speech detected. Please try again.");
+          }
+        } catch (err: any) {
+          console.error("STT error:", err);
+          setVoiceError(err.message || "Speech transcription failed.");
+        } finally {
+          setTranscribing(false);
+        }
+      };
+      mediaRecorder.start();
       setIsListening(true);
-    } catch {
-      setBackendError("Failed to start voice input.");
+    } catch (err: any) {
+      console.error("Mic error:", err);
+      if (err.name === "NotAllowedError" || err.name === "PermissionDeniedError") {
+        setVoiceError("Microphone permission denied. Click the mic/camera icon in the address bar and set it to 'Allow', then try again.");
+      } else if (err.name === "NotFoundError") {
+        setVoiceError("No microphone found. Please connect a microphone and try again.");
+      } else {
+        setVoiceError("Microphone access denied or unavailable. Check browser permissions.");
+      }
     }
   };
 
   const stopVoiceInput = () => {
-    if (speechRecognition) speechRecognition.stop();
-    setIsListening(false);
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      mediaRecorderRef.current.stop();
+    } else {
+      setIsListening(false);
+    }
   };
 
   const send = useCallback(async () => {
@@ -184,59 +272,138 @@ export function ChatApp() {
     setDraft("");
     setLoading(true);
     setBackendError(null);
+    setVoiceError(null);
 
     try {
-      const res = await fetch(BACKEND_URL, {
-        method: "POST",
-        headers: getAuthHeaders(),
-        credentials: "include",
-        body: JSON.stringify({
-          query: text,
-          file_content: uploadedFile ? draft : undefined,
-          file_name: uploadedFile ? uploadedFile.name : undefined,
-        }),
-      });
+      let finalResponse: string;
+      let citations: string[] = [];
 
-      if (!res.ok) {
-        throw new Error(`Server returned status ${res.status}`);
-      }
+      if (ragCollectionId) {
+        try {
+          const res = await fetch("/api/rag/query", {
+            method: "POST",
+            headers: getAuthHeaders(),
+            credentials: "include",
+            body: JSON.stringify({
+              query: text,
+              collection_id: ragCollectionId,
+              top_k: 5,
+            }),
+          });
 
-      const data = await res.json();
+          if (!res.ok) {
+            throw new Error(`RAG query failed: ${res.status}`);
+          }
 
-      if (!data || typeof data !== "object") {
-        throw new Error("Received an invalid response from the server.");
-      }
+          const data = await res.json();
+          finalResponse = data.answer || "No answer found.";
+          citations = (data.citations || []).map((c: any) => c.title || c.document_id || "").filter(Boolean);
+        } catch (ragErr: any) {
+          console.error("RAG query error, falling back to local:", ragErr);
+          const res = await fetch(BACKEND_URL, {
+            method: "POST",
+            headers: getAuthHeaders(),
+            credentials: "include",
+            body: JSON.stringify({
+              query: text,
+              file_content: uploadedFile ? draft : undefined,
+              file_name: uploadedFile ? uploadedFile.name : undefined,
+            }),
+          });
 
-      const citations: string[] = [];
-      if (data.phases) {
-        for (const phase of data.phases) {
-          if (phase.output?.document_retrieval?.sources) {
-            for (const src of phase.output.document_retrieval.sources) {
-              if (src.citation) {
-                citations.push(src.citation);
+          if (!res.ok) {
+            throw new Error(`Server returned status ${res.status}`);
+          }
+
+          const data = await res.json();
+
+          if (!data || typeof data !== "object") {
+            throw new Error("Received an invalid response from the server.");
+          }
+
+          if (data.phases) {
+            for (const phase of data.phases) {
+              if (phase.output?.document_retrieval?.sources) {
+                for (const src of phase.output.document_retrieval.sources) {
+                  if (src.citation) {
+                    citations.push(src.citation);
+                  }
+                }
+              }
+              if (phase.output?.web_search) {
+                if (phase.output.web_search.web_sources) {
+                  for (const src of phase.output.web_search.web_sources) {
+                    const title = src.title || src.url;
+                    if (title) citations.push(title);
+                  }
+                }
+                if (phase.output.web_search.news_sources) {
+                  for (const src of phase.output.web_search.news_sources) {
+                    const title = src.title || src.url;
+                    if (title) citations.push(title);
+                  }
+                }
               }
             }
           }
-          if (phase.output?.web_search) {
-            if (phase.output.web_search.web_sources) {
-              for (const src of phase.output.web_search.web_sources) {
-                const title = src.title || src.url;
-                if (title) citations.push(title);
+
+          finalResponse = data.final_response;
+          if (!finalResponse || finalResponse.trim() === "") {
+            throw new Error("The server returned an empty response.");
+          }
+        }
+      } else {
+        const res = await fetch(BACKEND_URL, {
+          method: "POST",
+          headers: getAuthHeaders(),
+          credentials: "include",
+          body: JSON.stringify({
+            query: text,
+            file_content: uploadedFile ? draft : undefined,
+            file_name: uploadedFile ? uploadedFile.name : undefined,
+          }),
+        });
+
+        if (!res.ok) {
+          throw new Error(`Server returned status ${res.status}`);
+        }
+
+        const data = await res.json();
+
+        if (!data || typeof data !== "object") {
+          throw new Error("Received an invalid response from the server.");
+        }
+
+        if (data.phases) {
+          for (const phase of data.phases) {
+            if (phase.output?.document_retrieval?.sources) {
+              for (const src of phase.output.document_retrieval.sources) {
+                if (src.citation) {
+                  citations.push(src.citation);
+                }
               }
             }
-            if (phase.output.web_search.news_sources) {
-              for (const src of phase.output.web_search.news_sources) {
-                const title = src.title || src.url;
-                if (title) citations.push(title);
+            if (phase.output?.web_search) {
+              if (phase.output.web_search.web_sources) {
+                for (const src of phase.output.web_search.web_sources) {
+                  const title = src.title || src.url;
+                  if (title) citations.push(title);
+                }
+              }
+              if (phase.output.web_search.news_sources) {
+                for (const src of phase.output.web_search.news_sources) {
+                  const title = src.title || src.url;
+                  if (title) citations.push(title);
+                }
               }
             }
           }
         }
-      }
 
-      const finalResponse = data.final_response;
-      if (!finalResponse || finalResponse.trim() === "") {
-        throw new Error("The server returned an empty response.");
+        finalResponse = data.final_response;
+        if (!finalResponse || finalResponse.trim() === "") {
+          throw new Error("The server returned an empty response.");
+        }
       }
 
       setThreads((t) =>
@@ -280,7 +447,7 @@ export function ChatApp() {
     } finally {
       setLoading(false);
     }
-  }, [draft, loading, activeThread, mode, uploadedFile]);
+  }, [draft, loading, activeThread, mode, uploadedFile, ragCollectionId]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -554,8 +721,17 @@ export function ChatApp() {
                       <span className="h-1.5 w-1.5 rounded-full bg-fire-brick animate-pulse" />
                       Backend offline
                     </span>
+                  ) : voiceError ? (
+                    <span className="inline-flex items-center gap-1.5 text-fire-brick">
+                      <span className="h-1.5 w-1.5 rounded-full bg-fire-brick animate-pulse" />
+                      {voiceError}
+                    </span>
+                  ) : ragCollectionId ? (
+                    "Knowledge base ready — ask questions about it"
                   ) : uploadedFile ? (
                     "Document ready — ask questions about it"
+                  ) : transcribing ? (
+                    "Transcribing…"
                   ) : isListening ? (
                     "Listening…"
                   ) : (
@@ -638,6 +814,7 @@ export function ChatApp() {
                   const online = await checkBackend();
                   if (online) {
                     setBackendError(null);
+                    setVoiceError(null);
                   }
                 }}
                 className="inline-flex items-center gap-2 rounded-xl border border-fire-brick/30 bg-fire-brick/5 px-4 py-2.5 text-sm font-medium text-fire-brick framer-transition hover:bg-fire-brick/10"
@@ -667,9 +844,9 @@ export function ChatApp() {
                 onClick={() => setPlusOpen((v) => !v)}
                 aria-label="More options"
                 aria-expanded={plusOpen}
-                disabled={isBackendOffline || loading || fileUploading || isListening}
+                disabled={isBackendOffline || loading || fileUploading || isListening || transcribing}
                 className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border text-text ${
-                  isBackendOffline || loading || fileUploading || isListening
+                  isBackendOffline || loading || fileUploading || isListening || transcribing
                     ? "cursor-not-allowed opacity-40"
                     : plusOpen
                     ? "border-accent1 text-accent1"
@@ -718,21 +895,25 @@ export function ChatApp() {
               ref={textareaRef}
               rows={1}
               value={draft}
-              onChange={(e) => setDraft(e.target.value)}
+              onChange={(e) => { setDraft(e.target.value); setVoiceError(null); }}
               onKeyDown={handleKeyDown}
               placeholder={
                 isBackendOffline
                   ? "Backend is offline — messages cannot be sent"
+                  : transcribing
+                  ? "Transcribing…"
                   : isListening
                   ? "Listening… speak now"
+                  : ragCollectionId
+                  ? "Ask questions about the uploaded document"
                   : uploadedFile
                   ? `Ask questions about ${uploadedFile.name}`
                   : "Ask about a case, clause, or citation…"
               }
               aria-label="Chat message input"
-              disabled={isBackendOffline || fileUploading || isListening}
+              disabled={isBackendOffline || fileUploading || isListening || transcribing}
               className={`min-w-0 flex-1 resize-none bg-transparent py-1.5 text-sm text-text outline-none placeholder:text-text-muted/60 ${
-                isBackendOffline || fileUploading || isListening ? "cursor-not-allowed opacity-60" : ""
+                isBackendOffline || fileUploading || isListening || transcribing ? "cursor-not-allowed opacity-60" : ""
               }`}
             />
 
@@ -740,25 +921,25 @@ export function ChatApp() {
               type="button"
               onClick={isListening ? stopVoiceInput : startVoiceInput}
               aria-label={isListening ? "Stop voice input" : "Start voice input"}
-              disabled={isBackendOffline || loading || fileUploading || !speechRecognition}
+              disabled={isBackendOffline || loading || fileUploading || transcribing}
               className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border text-text ${
-                isBackendOffline || loading || fileUploading || !speechRecognition
+                isBackendOffline || loading || fileUploading || transcribing
                   ? "cursor-not-allowed opacity-40"
                   : isListening
                   ? "border-accent1 text-accent1"
                   : "hover:border-text/30"
               }`}
             >
-              <Icon name={isListening ? "mic" : "mic"} size={16} className={isListening ? "animate-pulse" : ""} />
+              <Icon name="mic" size={16} className={isListening || transcribing ? "animate-pulse" : ""} />
             </button>
 
             <button
               type="button"
               onClick={send}
               aria-label="Send message"
-              disabled={isBackendOffline || fileUploading || isListening || !draft.trim()}
+              disabled={isBackendOffline || fileUploading || isListening || transcribing || !draft.trim()}
               className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg primary-gradient text-white ${
-                isBackendOffline || fileUploading || isListening || !draft.trim() ? "cursor-not-allowed opacity-40" : ""
+                isBackendOffline || fileUploading || isListening || transcribing || !draft.trim() ? "cursor-not-allowed opacity-40" : ""
               }`}
             >
               <Icon name="arrow" size={16} />

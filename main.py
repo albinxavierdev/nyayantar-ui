@@ -13,6 +13,9 @@ import time
 from pathlib import Path
 from dotenv import load_dotenv
 
+sys.stdout.reconfigure(encoding="utf-8")
+sys.stderr.reconfigure(encoding="utf-8")
+
 # Load environment variables from .env file at the start
 PROJECT_DIR = Path(__file__).parent
 env_path = PROJECT_DIR / ".env"

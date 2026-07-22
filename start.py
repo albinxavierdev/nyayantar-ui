@@ -112,11 +112,11 @@ def process_alive(pid: int) -> bool:
             return False
 
 
-def find_python311() -> Path:
+def find_python312() -> Path:
     candidates = []
 
     py_launcher = subprocess.run(
-        ["py", "-3.11", "-c", "import sys; print(sys.executable)"],
+        ["py", "-3.12", "-c", "import sys; print(sys.executable)"],
         capture_output=True,
         text=True,
     )
@@ -124,11 +124,11 @@ def find_python311() -> Path:
         candidates.append(Path(py_launcher.stdout.strip()))
 
     common_paths = [
-        Path("C:/Python311/python.exe"),
-        Path("C:/Program Files/Python311/python.exe"),
-        Path("C:/Program Files (x86)/Python311/python.exe"),
-        Path.home() / "AppData/Local/Programs/Python/Python311/python.exe",
-        Path.home() / "AppData/Local/Microsoft/WindowsApps/python3.11.exe",
+        Path("C:/Python312/python.exe"),
+        Path("C:/Program Files/Python312/python.exe"),
+        Path("C:/Program Files (x86)/Python312/python.exe"),
+        Path.home() / "AppData/Local/Programs/Python/Python312/python.exe",
+        Path.home() / "AppData/Local/Microsoft/WindowsApps/python3.12.exe",
     ]
     candidates.extend(common_paths)
 
@@ -139,10 +139,10 @@ def find_python311() -> Path:
                 capture_output=True,
                 text=True,
             )
-            if verify.returncode == 0 and "3.11" in verify.stdout:
+            if verify.returncode == 0 and "3.12" in verify.stdout:
                 return path
 
-    log("Python 3.11 not found. Install it or ensure `py -3.11` works.")
+    log("Python 3.12 not found. Install it or ensure `py -3.12` works.")
     sys.exit(1)
 
 
@@ -298,11 +298,11 @@ def main() -> None:
     kill_port(BACKEND_PORT)
     kill_port(WEBAPP_PORT)
 
-    log("Finding Python 3.11...")
-    python311 = find_python311()
-    log(f"Found Python 3.11 at: {python311}")
+    log("Finding Python 3.12...")
+    python312 = find_python312()
+    log(f"Found Python 3.12 at: {python312}")
 
-    python_exec = str(ensure_venv(python311))
+    python_exec = str(ensure_venv(python312))
     venv_dir = ROOT_DIR / "venv"
     env = clean_env(venv_dir)
 
