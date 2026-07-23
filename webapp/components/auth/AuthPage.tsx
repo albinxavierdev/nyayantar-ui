@@ -56,9 +56,24 @@ function AuthCard({ mode }: { mode: PageMode }) {
   const isRegister = mode === "register";
   const current = copy[mode];
 
+  // Keep the latest Google callback in a ref so the GIS SDK always invokes
+  // the current closure (avoids stale-capture of isRegister / router).
+  const googleCallbackRef = useRef<
+    (response: { credential?: string }) => void
+  >(() => {});
+  useEffect(() => {
+    googleCallbackRef.current = handleGoogleCredential;
+  });
+
   // Real Google sign-in via Google Identity Services (GIS).
   useEffect(() => {
-    if (!GOOGLE_CLIENT_ID || !googleBtnRef.current) return;
+    if (!GOOGLE_CLIENT_ID) return;
+    if (!googleBtnRef.current) return;
+
+    const existingBtn = googleBtnRef.current.querySelector(
+      "div[id^='g_id_onload'], div[id^='g-signin2']"
+    );
+    if (existingBtn) return;
 
     const script = document.createElement("script");
     script.src = "https://accounts.google.com/gsi/client";
@@ -68,7 +83,8 @@ function AuthCard({ mode }: { mode: PageMode }) {
       if (!g?.accounts?.id) return;
       g.accounts.id.initialize({
         client_id: GOOGLE_CLIENT_ID,
-        callback: handleGoogleCredential,
+        callback: (response: { credential?: string }) =>
+          googleCallbackRef.current(response),
       });
       const el = googleBtnRef.current;
       if (!el) return;

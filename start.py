@@ -114,23 +114,25 @@ def process_alive(pid: int) -> bool:
 
 def find_python312() -> Path:
     candidates = []
+    preferred_versions = ["3.12", "3.13", "3.11", "3.10"]
 
-    py_launcher = subprocess.run(
-        ["py", "-3.12", "-c", "import sys; print(sys.executable)"],
-        capture_output=True,
-        text=True,
-    )
-    if py_launcher.returncode == 0:
-        candidates.append(Path(py_launcher.stdout.strip()))
+    for ver in preferred_versions:
+        result = subprocess.run(
+            ["py", f"-{ver}", "-c", "import sys; print(sys.executable)"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            candidates.append(Path(result.stdout.strip()))
 
-    common_paths = [
-        Path("C:/Python312/python.exe"),
-        Path("C:/Program Files/Python312/python.exe"),
-        Path("C:/Program Files (x86)/Python312/python.exe"),
-        Path.home() / "AppData/Local/Programs/Python/Python312/python.exe",
-        Path.home() / "AppData/Local/Microsoft/WindowsApps/python3.12.exe",
-    ]
-    candidates.extend(common_paths)
+    for ver in preferred_versions:
+        candidates.extend([
+            Path(f"C:/Python{ver.replace('.','')}/python.exe"),
+            Path(f"C:/Program Files/Python{ver.replace('.','')}/python.exe"),
+            Path(f"C:/Program Files (x86)/Python{ver.replace('.','')}/python.exe"),
+            Path.home() / f"AppData/Local/Programs/Python/Python{ver.replace('.','')}/python.exe",
+            Path.home() / f"AppData/Local/Microsoft/WindowsApps/python{ver}.exe",
+        ])
 
     for path in candidates:
         if path.exists():
@@ -139,10 +141,12 @@ def find_python312() -> Path:
                 capture_output=True,
                 text=True,
             )
-            if verify.returncode == 0 and "3.12" in verify.stdout:
-                return path
+            if verify.returncode == 0:
+                version = verify.stdout.strip()
+                if any(f"Python {ver}" in version for ver in preferred_versions):
+                    return path
 
-    log("Python 3.12 not found. Install it or ensure `py -3.12` works.")
+    log("No suitable Python 3.10+ found. Install Python 3.11 or 3.12, or ensure `py -3.11` works.")
     sys.exit(1)
 
 
@@ -256,6 +260,7 @@ def ensure_venv(python_executable: Path) -> Path:
         ("nltk", "nltk"),
         ("sentencepiece", "sentencepiece"),
         ("accelerate", "accelerate"),
+        ("whisper", "openai-whisper"),
         ("duckduckgo_search", "duckduckgo-search"),
     ]
 
@@ -298,9 +303,9 @@ def main() -> None:
     kill_port(BACKEND_PORT)
     kill_port(WEBAPP_PORT)
 
-    log("Finding Python 3.12...")
+    log("Finding Python...")
     python312 = find_python312()
-    log(f"Found Python 3.12 at: {python312}")
+    log(f"Found Python at: {python312}")
 
     python_exec = str(ensure_venv(python312))
     venv_dir = ROOT_DIR / "venv"

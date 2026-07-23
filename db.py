@@ -100,12 +100,35 @@ def init_db() -> None:
                 created_at  REAL NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS chat_threads (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                email       TEXT,
+                title       TEXT NOT NULL,
+                mode        TEXT NOT NULL DEFAULT 'ask',
+                created_at  REAL NOT NULL,
+                updated_at  REAL NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS chat_messages (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                thread_id   INTEGER NOT NULL,
+                role        TEXT NOT NULL,
+                text        TEXT NOT NULL,
+                citations   TEXT NOT NULL DEFAULT '[]',
+                created_at  REAL NOT NULL,
+                FOREIGN KEY (thread_id) REFERENCES chat_threads(id) ON DELETE CASCADE
+            );
+
             CREATE INDEX IF NOT EXISTS idx_sessions_email  ON sessions(email);
             CREATE INDEX IF NOT EXISTS idx_queries_email   ON queries(email);
             CREATE INDEX IF NOT EXISTS idx_queries_created ON queries(created_at);
             CREATE INDEX IF NOT EXISTS idx_audit_event     ON audit_log(event);
             CREATE INDEX IF NOT EXISTS idx_audit_created   ON audit_log(created_at);
-            """
+            CREATE INDEX IF NOT EXISTS idx_chat_threads_email ON chat_threads(email);
+            CREATE INDEX IF NOT EXISTS idx_chat_threads_updated ON chat_threads(updated_at);
+            CREATE INDEX IF NOT EXISTS idx_chat_messages_thread ON chat_messages(thread_id);
+            CREATE INDEX IF NOT EXISTS idx_chat_messages_created ON chat_messages(created_at);
+"""
         )
         conn.commit()
 
@@ -422,3 +445,175 @@ def audit_count() -> int:
         return int(row["c"])
     finally:
         conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Chat history (threads + messages)
+# ---------------------------------------------------------------------------
+def _row_to_thread(row: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "id": str(row["id"]),
+        "email": row["email"],
+        "title": row["title"],
+        "mode": row["mode"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
+
+def _row_to_message(row: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "id": row["id"],
+        "thread_id": str(row["thread_id"]),
+        "role": row["role"],
+        "text": row["text"],
+        "citations": json.loads(row["citations"] or "[]"),
+        "created_at": row["created_at"],
+    }
+
+
+def create_chat_thread(email: Optional[str], title: str, mode: str = "ask") -> Dict[str, Any]:
+    _ensure()
+    now = time.time()
+    conn = _connect()
+    try:
+        cur = conn.execute(
+            """INSERT INTO chat_threads (email, title, mode, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (email.strip().lower() if email else None, title, mode, now, now),
+        )
+        conn.commit()
+        thread_id = cur.lastrowid
+    finally:
+        conn.close()
+    return {
+        "id": str(thread_id),
+        "email": email.strip().lower() if email else None,
+        "title": title,
+        "mode": mode,
+        "created_at": now,
+        "updated_at": now,
+    }
+
+
+def get_chat_threads(email: Optional[str]) -> List[Dict[str, Any]]:
+    _ensure()
+    conn = _connect()
+    try:
+        if email:
+            rows = conn.execute(
+                """SELECT id, email, title, mode, created_at, updated_at
+                   FROM chat_threads
+                   WHERE email = ?
+                   ORDER BY updated_at DESC""",
+                (email.strip().lower(),),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT id, email, title, mode, created_at, updated_at
+                   FROM chat_threads
+                   ORDER BY updated_at DESC"""
+            ).fetchall()
+        return [_row_to_thread(dict(r)) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_chat_thread(thread_id: int, email: Optional[str]) -> Optional[Dict[str, Any]]:
+    _ensure()
+    conn = _connect()
+    try:
+        row = conn.execute(
+            """SELECT id, email, title, mode, created_at, updated_at
+               FROM chat_threads
+               WHERE id = ?""",
+            (thread_id,),
+        ).fetchone()
+        if not row:
+            return None
+        if email and row["email"] and row["email"] != email.strip().lower():
+            return None
+        thread = _row_to_thread(dict(row))
+        msgs = conn.execute(
+            """SELECT id, thread_id, role, text, citations, created_at
+               FROM chat_messages
+               WHERE thread_id = ?
+               ORDER BY created_at ASC""",
+            (thread_id,),
+        ).fetchall()
+        thread["messages"] = [_row_to_message(dict(m)) for m in msgs]
+        return thread
+    finally:
+        conn.close()
+
+
+def save_chat_message(
+    thread_id: int,
+    role: str,
+    text: str,
+    citations: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    _ensure()
+    now = time.time()
+    conn = _connect()
+    try:
+        cur = conn.execute(
+            """INSERT INTO chat_messages (thread_id, role, text, citations, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (thread_id, role, text, json.dumps(citations or [], ensure_ascii=False), now),
+        )
+        conn.execute(
+            "UPDATE chat_threads SET updated_at = ? WHERE id = ?",
+            (now, thread_id),
+        )
+        conn.commit()
+        msg_id = cur.lastrowid
+    finally:
+        conn.close()
+    return {
+        "id": msg_id,
+        "thread_id": thread_id,
+        "role": role,
+        "text": text,
+        "citations": citations or [],
+        "created_at": now,
+    }
+
+
+def delete_chat_thread(thread_id: int, email: Optional[str]) -> bool:
+    _ensure()
+    conn = _connect()
+    try:
+        if email:
+            row = conn.execute(
+                "SELECT email FROM chat_threads WHERE id = ?", (thread_id,)
+            ).fetchone()
+            if not row or (row["email"] and row["email"] != email.strip().lower()):
+                return False
+        conn.execute("DELETE FROM chat_messages WHERE thread_id = ?", (thread_id,))
+        conn.execute("DELETE FROM chat_threads WHERE id = ?", (thread_id,))
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def update_chat_thread(thread_id: int, email: Optional[str], title: Optional[str] = None, mode: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    _ensure()
+    conn = _connect()
+    try:
+        if email:
+            row = conn.execute(
+                "SELECT email FROM chat_threads WHERE id = ?", (thread_id,)
+            ).fetchone()
+            if not row or (row["email"] and row["email"] != email.strip().lower()):
+                return None
+        now = time.time()
+        if title is not None:
+            conn.execute("UPDATE chat_threads SET title = ?, updated_at = ? WHERE id = ?", (title, now, thread_id))
+        if mode is not None:
+            conn.execute("UPDATE chat_threads SET mode = ?, updated_at = ? WHERE id = ?", (mode, now, thread_id))
+        conn.commit()
+    finally:
+        conn.close()
+    return get_chat_thread(thread_id, email)

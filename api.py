@@ -1450,6 +1450,130 @@ async def consent_status(request: Request):
     return {"required": CONSENT_REQUIRED, "granted": bool(request.cookies.get(CONSENT_COOKIE_NAME))}
 
 
+# ------------------------------------------------------------------
+# Chat history (CRUD over threads + messages)
+# ------------------------------------------------------------------
+class ThreadCreate(BaseModel):
+    title: constr(min_length=1, max_length=200)  # type: ignore[valid-type]
+    mode: Optional[constr(min_length=1, max_length=20)] = "ask"  # type: ignore[valid-type]
+
+
+class ThreadUpdate(BaseModel):
+    title: Optional[constr(min_length=1, max_length=200)] = None  # type: ignore[valid-type]
+    mode: Optional[constr(min_length=1, max_length=20)] = None  # type: ignore[valid-type]
+
+
+class MessageCreate(BaseModel):
+    role: constr(min_length=1, max_length=20)  # type: ignore[valid-type]
+    text: constr(min_length=1, max_length=65535)  # type: ignore[valid-type]
+    citations: Optional[List[str]] = None
+
+
+@app.get("/chat/threads")
+@limiter.limit(os.getenv("RATE_LIMIT_QUERY", "20/minute"))
+async def chat_threads_list(
+    request: Request,
+    _: None = Depends(require_auth),
+    _csrf: None = Depends(require_csrf),
+):
+    claims = _session_claims(request)
+    email = claims.get("email") if claims else None
+    threads = db.get_chat_threads(email)
+    return {"threads": threads}
+
+
+@app.get("/chat/threads/{thread_id}")
+@limiter.limit(os.getenv("RATE_LIMIT_QUERY", "20/minute"))
+async def chat_thread_detail(
+    thread_id: int,
+    request: Request,
+    _: None = Depends(require_auth),
+    _csrf: None = Depends(require_csrf),
+):
+    claims = _session_claims(request)
+    email = claims.get("email") if claims else None
+    thread = db.get_chat_thread(thread_id, email)
+    if not thread:
+        raise HTTPException(status_code=404, detail="Thread not found.")
+    return thread
+
+
+@app.post("/chat/threads")
+@limiter.limit(os.getenv("RATE_LIMIT_QUERY", "20/minute"))
+async def chat_thread_create(
+    payload: ThreadCreate,
+    request: Request,
+    _: None = Depends(require_auth),
+    _csrf: None = Depends(require_csrf),
+):
+    claims = _session_claims(request)
+    email = claims.get("email") if claims else None
+    thread = db.create_chat_thread(email, payload.title, payload.mode or "ask")
+    return thread
+
+
+@app.put("/chat/threads/{thread_id}")
+@limiter.limit(os.getenv("RATE_LIMIT_QUERY", "20/minute"))
+async def chat_thread_update(
+    thread_id: int,
+    payload: ThreadUpdate,
+    request: Request,
+    _: None = Depends(require_auth),
+    _csrf: None = Depends(require_csrf),
+):
+    claims = _session_claims(request)
+    email = claims.get("email") if claims else None
+    thread = db.get_chat_thread(thread_id, email)
+    if not thread:
+        raise HTTPException(status_code=404, detail="Thread not found.")
+    updates = {}
+    if payload.title is not None:
+        updates["title"] = payload.title
+    if payload.mode is not None:
+        updates["mode"] = payload.mode
+    if updates:
+        thread = db.update_chat_thread(thread_id, email, **updates)
+    else:
+        thread = db.get_chat_thread(thread_id, email)
+    if not thread:
+        raise HTTPException(status_code=404, detail="Thread not found.")
+    return thread
+
+
+@app.post("/chat/threads/{thread_id}/messages")
+@limiter.limit(os.getenv("RATE_LIMIT_QUERY", "20/minute"))
+async def chat_message_create(
+    thread_id: int,
+    payload: MessageCreate,
+    request: Request,
+    _: None = Depends(require_auth),
+    _csrf: None = Depends(require_csrf),
+):
+    claims = _session_claims(request)
+    email = claims.get("email") if claims else None
+    thread = db.get_chat_thread(thread_id, email)
+    if not thread:
+        raise HTTPException(status_code=404, detail="Thread not found.")
+    msg = db.save_chat_message(thread_id, payload.role, payload.text, payload.citations)
+    return msg
+
+
+@app.delete("/chat/threads/{thread_id}")
+@limiter.limit(os.getenv("RATE_LIMIT_QUERY", "20/minute"))
+async def chat_thread_delete(
+    thread_id: int,
+    request: Request,
+    _: None = Depends(require_auth),
+    _csrf: None = Depends(require_csrf),
+):
+    claims = _session_claims(request)
+    email = claims.get("email") if claims else None
+    ok = db.delete_chat_thread(thread_id, email)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Thread not found.")
+    return {"status": "deleted"}
+
+
 # Admin-only endpoint, server-enforced role check.
 @app.get("/admin/stats")
 @limiter.limit(os.getenv("RATE_LIMIT_QUERY", "20/minute"))

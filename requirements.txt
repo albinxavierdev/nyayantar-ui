@@ -18,3 +18,4 @@ openai-whisper
 slowapi
 bcrypt
 python-multipart
+google-auth

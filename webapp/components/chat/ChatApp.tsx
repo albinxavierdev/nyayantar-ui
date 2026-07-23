@@ -3,6 +3,7 @@
 import { Fragment, useState, useCallback, useRef, useEffect } from "react";
 import { Icon } from "@/components/ui/Icon";
 import { Logo } from "@/components/ui/Logo";
+import { MarkdownRenderer } from "@/components/ui/MarkdownRenderer";
 import { type Message } from "@/lib/constants";
 import { sanitizeText } from "@/lib/utils";
 import { useAuth, hasRole, getAuthHeaders } from "@/components/providers/AuthProvider";
@@ -42,11 +43,48 @@ export function ChatApp() {
   const audioChunksRef = useRef<Blob[]>([]);
   const [plusOpen, setPlusOpen] = useState(false);
   const plusRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const [demoNotice, setDemoNotice] = useState<string | null>(null);
 
   // Messages for the currently active thread (derived, never shared).
   const activeThreadData = threads.find((t) => t.id === activeThread) ?? null;
   const messages = activeThreadData?.messages ?? [];
+
+  // Load persisted chat history from the backend when the user is authenticated.
+  useEffect(() => {
+    if (!loggedIn) return;
+    let cancelled = false;
+    fetch("/chat/threads", {
+      headers: getAuthHeaders(),
+      credentials: "include",
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (cancelled || !data?.threads) return;
+        const loaded: Thread[] = (data.threads as any[]).map((t) => ({
+          id: String(t.id),
+          title: t.title,
+          mode: t.mode || "ask",
+          messages: (t.messages || []).map((m: any) => ({
+            id: m.id,
+            role: m.role,
+            text: m.text,
+            citations: m.citations || [],
+          })),
+        }));
+        setThreads(loaded);
+        if (!activeThread && loaded.length > 0) {
+          setActiveThread(loaded[0].id);
+          setMode(loaded[0].mode);
+        }
+      })
+      .catch(() => {
+        /* network error — keep local state */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [loggedIn]);
 
   useEffect(() => {
     if (sidebarOpen && textareaRef.current) {
@@ -94,6 +132,19 @@ export function ChatApp() {
       return res.ok;
     } catch {
       return false;
+    }
+  }, []);
+
+  const saveChatMessage = useCallback(async (threadId: string, role: string, text: string, citations?: string[]) => {
+    try {
+      await fetch(`/chat/threads/${threadId}/messages`, {
+        method: "POST",
+        headers: getAuthHeaders(),
+        credentials: "include",
+        body: JSON.stringify({ role, text, citations }),
+      });
+    } catch {
+      /* best-effort persistence */
     }
   }, []);
 
@@ -241,31 +292,49 @@ export function ChatApp() {
     const text = sanitizeText(draft);
     if (!text || loading) return;
 
-    const newThreadId = activeThread ?? `t-${Date.now()}`;
+    let threadId = activeThread;
     const newThreadTitle = text.slice(0, 40) + (text.length > 40 ? "…" : "");
 
-    // Ensure a thread exists for this conversation (creates one if needed).
+    // Create a new thread in the backend if this is a fresh conversation.
+    if (!threadId) {
+      try {
+        const res = await fetch("/chat/threads", {
+          method: "POST",
+          headers: getAuthHeaders(),
+          credentials: "include",
+          body: JSON.stringify({ title: newThreadTitle, mode }),
+        });
+        if (!res.ok) throw new Error("Failed to create thread");
+        const thread = await res.json();
+        threadId = String(thread.id);
+      } catch (err) {
+        setBackendError(err instanceof Error ? err.message : "Failed to create chat thread");
+        return;
+      }
+    }
+
+    // Update local state: ensure thread exists and mark it active.
     setThreads((t) => {
-      const exists = t.find((x) => x.id === newThreadId);
+      const exists = t.find((x) => x.id === threadId!);
       if (exists) {
         return t.map((x) =>
-          x.id === newThreadId
+          x.id === threadId
             ? { ...x, title: newThreadTitle, mode, active: true }
             : { ...x, active: false }
         );
       }
       return [
-        { id: newThreadId, title: newThreadTitle, mode, messages: [] },
+        { id: threadId!, title: newThreadTitle, mode, messages: [] },
         ...t.map((x) => ({ ...x, active: false })),
       ];
     });
 
-    setActiveThread(newThreadId);
-    // Append the user message to THIS thread only (no cross-thread sharing).
+    setActiveThread(threadId!);
+    const userMsg = { id: Date.now(), role: "user" as const, text };
     setThreads((t) =>
       t.map((x) =>
-        x.id === newThreadId
-          ? { ...x, messages: [...x.messages, { id: (x.messages.at(-1)?.id ?? 0) + 1, role: "user", text }] }
+        x.id === threadId
+          ? { ...x, messages: [...x.messages, userMsg] }
           : x
       )
     );
@@ -273,6 +342,9 @@ export function ChatApp() {
     setLoading(true);
     setBackendError(null);
     setVoiceError(null);
+
+    // Persist user message (best-effort).
+    saveChatMessage(threadId!, "user", text).catch(() => {});
 
     try {
       let finalResponse: string;
@@ -406,48 +478,40 @@ export function ChatApp() {
         }
       }
 
+      const assistantMsg = {
+        id: Date.now() + 1,
+        role: "assistant" as const,
+        text: finalResponse,
+        citations: citations.length > 0 ? citations : undefined,
+      };
       setThreads((t) =>
         t.map((x) =>
-          x.id === newThreadId
-            ? {
-                ...x,
-                messages: [
-                  ...x.messages,
-                  {
-                    id: (x.messages.at(-1)?.id ?? 0) + 1,
-                    role: "assistant" as const,
-                    text: finalResponse,
-                    citations: citations.length > 0 ? citations : undefined,
-                  },
-                ],
-              }
+          x.id === threadId
+            ? { ...x, messages: [...x.messages, assistantMsg] }
             : x
         )
       );
+      saveChatMessage(threadId!, "assistant", finalResponse, citations.length > 0 ? citations : undefined).catch(() => {});
     } catch (err: any) {
       console.error("Error communicating with backend:", err);
       setBackendError(err.message || "Unknown error");
+      const errorMsg = {
+        id: Date.now() + 1,
+        role: "assistant" as const,
+        text: `Error: ${err.message || "Unable to connect to the backend server."} Please make sure the backend is running at /api.`,
+      };
       setThreads((t) =>
         t.map((x) =>
-          x.id === newThreadId
-            ? {
-                ...x,
-                messages: [
-                  ...x.messages,
-                  {
-                    id: (x.messages.at(-1)?.id ?? 0) + 1,
-                    role: "assistant" as const,
-                    text: `Error: ${err.message || "Unable to connect to the backend server."} Please make sure the backend is running at /api.`,
-                  },
-                ],
-              }
+          x.id === threadId
+            ? { ...x, messages: [...x.messages, errorMsg] }
             : x
         )
       );
+      saveChatMessage(threadId!, "assistant", errorMsg.text).catch(() => {});
     } finally {
       setLoading(false);
     }
-  }, [draft, loading, activeThread, mode, uploadedFile, ragCollectionId]);
+  }, [draft, loading, activeThread, mode, uploadedFile, ragCollectionId, saveChatMessage]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -460,6 +524,18 @@ export function ChatApp() {
   );
 
   const isBackendOffline = backendError !== null;
+
+  useEffect(() => {
+    const el = messagesContainerRef.current;
+    if (!el) return;
+    const shouldScroll =
+      messages.length > 1 ||
+      (messages.length === 1 && messages[0].role === "user") ||
+      loading;
+    if (shouldScroll) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [messages, loading]);
 
   return (
     <div className="flex h-[100dvh] min-h-0 w-full bg-page">
@@ -747,7 +823,13 @@ export function ChatApp() {
         </header>
 
         {/* Messages */}
-        <div className="flex-1 space-y-4 overflow-y-auto p-4 md:p-6" role="log" aria-label="Chat messages" aria-live="polite">
+        <div
+          ref={messagesContainerRef}
+          className="flex-1 space-y-4 overflow-y-auto p-4 md:p-6"
+          role="log"
+          aria-label="Chat messages"
+          aria-live="polite"
+        >
           {messages.length === 0 && !loading && (
             <div className="flex h-full flex-col items-center justify-center gap-3 py-12">
               <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-surface-tint text-accent1">
@@ -770,9 +852,9 @@ export function ChatApp() {
                   N
                 </span>
                 <div className="max-w-[85%] md:max-w-[70%]">
-                  <p className="rounded-2xl rounded-tl-sm border border-border bg-surface px-4 py-2.5 text-sm leading-6 text-text">
-                    {m.text}
-                  </p>
+                  <div className="rounded-2xl rounded-tl-sm border border-border bg-surface px-4 py-2.5 text-sm text-text">
+                    <MarkdownRenderer content={m.text} />
+                  </div>
                   {m.citations && (
                     <div className="mt-2.5 flex flex-wrap gap-2">
                       {m.citations.map((c) => (
