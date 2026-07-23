@@ -36,6 +36,7 @@ export function ChatApp() {
   const [fileUploading, setFileUploading] = useState(false);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [ragCollectionId, setRagCollectionId] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const [isListening, setIsListening] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
@@ -211,12 +212,13 @@ export function ChatApp() {
     e.target.value = "";
     if (!file) return;
     if (!/^text\/|\.txt$|\.md$|\.pdf$/i.test(file.type + file.name)) {
-      setBackendError("Please upload a .txt, .md, or .pdf file.");
+      setUploadError("Please upload a .txt, .md, or .pdf file.");
       return;
     }
     setFileUploading(true);
     setUploadedFile(file);
     setRagCollectionId(null);
+    setUploadError(null);
 
     const tryRagUpload = async (): Promise<boolean> => {
       try {
@@ -252,7 +254,7 @@ export function ChatApp() {
       const ragOk = await tryRagUpload();
       if (!ragOk) {
         if (/\.pdf$/i.test(file.name)) {
-          setBackendError("PDF requires the Bizfylabs RAG API key. Configure RAG_API_KEY in .env, or upload .txt/.md files.");
+          setUploadError("PDF requires the Bizfylabs RAG API key. Configure RAG_API_KEY in .env, or upload .txt/.md files.");
           setUploadedFile(null);
         } else {
           const text = await file.text();
@@ -260,7 +262,7 @@ export function ChatApp() {
         }
       }
     } catch {
-      setBackendError("Could not read the uploaded file.");
+      setUploadError("Could not read the uploaded file.");
       setUploadedFile(null);
     } finally {
       setFileUploading(false);
@@ -1050,7 +1052,7 @@ export function ChatApp() {
               ref={textareaRef}
               rows={1}
               value={draft}
-              onChange={(e) => { setDraft(e.target.value); setVoiceError(null); }}
+              onChange={(e) => { setDraft(e.target.value); setVoiceError(null); setUploadError(null); }}
               onKeyDown={handleKeyDown}
               placeholder={
                 isBackendOffline
@@ -1104,6 +1106,20 @@ export function ChatApp() {
           {demoNotice && (
             <div className="mx-auto mt-2 max-w-3xl rounded-xl border border-accent1/20 bg-accent1/8 px-4 py-2 text-center text-xs text-text">
               {demoNotice}
+            </div>
+          )}
+
+          {uploadError && (
+            <div className="mx-auto mt-2 max-w-3xl flex items-center justify-between gap-3 rounded-xl border border-fire-brick/30 bg-fire-brick/5 px-4 py-2 text-xs text-fire-brick">
+              <span className="truncate">{uploadError}</span>
+              <button
+                type="button"
+                onClick={() => setUploadError(null)}
+                className="shrink-0 rounded-md border border-fire-brick/30 px-1.5 py-0.5 text-[10px] hover:bg-fire-brick/10"
+                aria-label="Dismiss upload error"
+              >
+                Dismiss
+              </button>
             </div>
           )}
         </div>
