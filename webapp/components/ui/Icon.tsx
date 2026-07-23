@@ -24,7 +24,8 @@ export type IconName =
   | "help"
   | "star"
   | "mic"
-  | "plus";
+  | "plus"
+  | "trash";
 
 const paths: Record<IconName, JSX.Element> = {
   brain: (
@@ -120,6 +121,9 @@ const paths: Record<IconName, JSX.Element> = {
   ),
   plus: (
     <path d="M12 5v14M5 12h14" />
+  ),
+  trash: (
+    <path d="M3 6h18M8 6V4h8v2M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
   ),
 };
 

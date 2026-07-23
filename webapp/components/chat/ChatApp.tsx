@@ -50,11 +50,31 @@ export function ChatApp() {
   const activeThreadData = threads.find((t) => t.id === activeThread) ?? null;
   const messages = activeThreadData?.messages ?? [];
 
+  const deleteThread = useCallback(async (threadId: string) => {
+    try {
+      const res = await fetch(`/api/chat/threads/${threadId}`, {
+        method: "DELETE",
+        headers: getAuthHeaders(),
+        credentials: "include",
+      });
+      if (!res.ok) throw new Error("Failed to delete thread");
+
+      setThreads((prev) => prev.filter((t) => t.id !== threadId));
+      if (activeThread === threadId) {
+        setActiveThread(null);
+        setMode("ask");
+      }
+    } catch (err) {
+      setBackendError(err instanceof Error ? err.message : "Failed to delete thread");
+      setTimeout(() => setBackendError(null), 3000);
+    }
+  }, [activeThread]);
+
   // Load persisted chat history from the backend when the user is authenticated.
   useEffect(() => {
     if (!loggedIn) return;
     let cancelled = false;
-    fetch("/chat/threads", {
+    fetch("/api/chat/threads", {
       headers: getAuthHeaders(),
       credentials: "include",
     })
@@ -85,6 +105,44 @@ export function ChatApp() {
       cancelled = true;
     };
   }, [loggedIn]);
+
+  useEffect(() => {
+    if (!activeThread || !loggedIn) return;
+    const current = threads.find((t) => t.id === activeThread);
+    if (current && current.messages.length > 0) return;
+    let cancelled = false;
+    fetch(`/api/chat/threads/${activeThread}`, {
+      headers: getAuthHeaders(),
+      credentials: "include",
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (cancelled || !data) return;
+        setThreads((prev) =>
+          prev.map((t) =>
+            t.id === String(data.id)
+              ? {
+                  ...t,
+                  title: data.title || t.title,
+                  mode: data.mode || t.mode,
+                  messages: (data.messages || []).map((m: any) => ({
+                    id: m.id,
+                    role: m.role,
+                    text: m.text,
+                    citations: m.citations || [],
+                  })),
+                }
+              : t
+          )
+        );
+      })
+      .catch(() => {
+        /* best-effort */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeThread, loggedIn]);
 
   useEffect(() => {
     if (sidebarOpen && textareaRef.current) {
@@ -137,7 +195,7 @@ export function ChatApp() {
 
   const saveChatMessage = useCallback(async (threadId: string, role: string, text: string, citations?: string[]) => {
     try {
-      await fetch(`/chat/threads/${threadId}/messages`, {
+      await fetch(`/api/chat/threads/${threadId}/messages`, {
         method: "POST",
         headers: getAuthHeaders(),
         credentials: "include",
@@ -298,7 +356,7 @@ export function ChatApp() {
     // Create a new thread in the backend if this is a fresh conversation.
     if (!threadId) {
       try {
-        const res = await fetch("/chat/threads", {
+        const res = await fetch("/api/chat/threads", {
           method: "POST",
           headers: getAuthHeaders(),
           credentials: "include",
@@ -621,28 +679,43 @@ export function ChatApp() {
               <p className="px-3 py-2 text-sm text-text-muted">No threads yet</p>
             ) : (
               threads.map((t) => (
-                <button
+                <div
                   key={t.id}
-                  type="button"
-                  onClick={() => {
-                    setActiveThread(t.id);
-                    setMode(t.mode);
-                    setSidebarOpen(false);
-                  }}
-                  className={`flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm framer-transition ${
-                    t.id === activeThread
-                      ? "bg-surface text-text shadow-[0_4px_14px_rgba(141,75,44,0.08)]"
-                      : "text-text-muted hover:bg-surface hover:text-text"
-                  }`}
-                  aria-current={t.id === activeThread ? "true" : undefined}
+                  className="flex items-center gap-1"
                 >
-                  <Icon
-                    name={t.mode === "draft" ? "doc" : t.mode === "interact" ? "layers" : "search"}
-                    size={15}
-                    className={t.id === activeThread ? "text-accent1" : ""}
-                  />
-                  <span className="truncate">{t.title}</span>
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveThread(t.id);
+                      setMode(t.mode);
+                      setSidebarOpen(false);
+                    }}
+                    aria-current={t.id === activeThread ? "true" : undefined}
+                    className={`flex min-w-0 flex-1 items-center gap-2 rounded-xl px-3 py-2.5 text-left text-sm framer-transition ${
+                      t.id === activeThread
+                        ? "bg-surface text-text shadow-[0_4px_14px_rgba(141,75,44,0.08)]"
+                        : "text-text-muted hover:bg-surface hover:text-text"
+                    }`}
+                  >
+                    <Icon
+                      name={t.mode === "draft" ? "doc" : t.mode === "interact" ? "layers" : "search"}
+                      size={15}
+                      className={t.id === activeThread ? "text-accent1" : ""}
+                    />
+                    <span className="truncate">{t.title}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteThread(t.id);
+                    }}
+                    aria-label={`Delete ${t.title}`}
+                    className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-text-muted hover:border-fire-brick/40 hover:text-fire-brick"
+                  >
+                    <Icon name="trash" size={14} />
+                  </button>
+                </div>
               ))
             )}
           </nav>
